@@ -1,0 +1,47 @@
+# Grown as we go -- add things when they actually show up, not speculatively.
+
+# --- macOS ---
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+
+# --- Editors ---
+.idea/
+*.swp
+*.swo
+.vscode/*
+!.vscode/extensions.json
+
+# --- Environment & secrets (this repo is public) ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# --- Node ---
+node_modules/
+dist/
+build/
+*.log
+npm-debug.log*
+yarn-error.log*
+.pnpm-store/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Local agent state (machine-specific) ---
+.claude/settings.local.json
+
+# --- NOT ignored, deliberately ---
+# .appguide/ is the whole point of this project. It is committed alongside the
+# code it describes, so that `git diff .appguide/` is the architectural diff.
+# Never add it here.

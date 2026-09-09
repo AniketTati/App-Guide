@@ -16,6 +16,9 @@ interface PackageJson {
  * reading 94% while missing 100% of the routes — silence is the failure mode
  * this tool exists to prevent.
  */
+/** Frameworks a detector already handles — never declare these as blind spots. */
+const SUPPORTED = new Set(['express', 'next'])
+
 const UNSUPPORTED: Record<string, string> = {
   '@trpc/server': 'routes',
   hono: 'routes',
@@ -36,6 +39,8 @@ export interface LibraryScan {
   files: SourceFile[]
   /** package -> files importing it, for reuse by later extractors */
   importers: Map<string, string[]>
+  /** Everything in package.json, so a detector can tell if its framework is here. */
+  declared: Set<string>
 }
 
 export async function scanLibraries(root: string): Promise<LibraryScan> {
@@ -115,6 +120,7 @@ export async function scanLibraries(root: string): Promise<LibraryScan> {
 
   for (const [pkg, what] of Object.entries(UNSUPPORTED)) {
     if (!declared.has(pkg)) continue
+    if (SUPPORTED.has(pkg)) continue
     facts.push({
       kind: 'gap', reason: 'unsupported-framework', subject: pkg,
       detail: `no extractor — ${what} from ${pkg} are not listed`,
@@ -122,7 +128,7 @@ export async function scanLibraries(root: string): Promise<LibraryScan> {
     })
   }
 
-  return { facts, files, importers }
+  return { facts, files, importers, declared: new Set(declared.keys()) }
 }
 
 /**

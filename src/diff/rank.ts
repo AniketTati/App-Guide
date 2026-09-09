@@ -1,4 +1,5 @@
 import { isBoundary, type Fact, type FactKind } from '../model/facts.js'
+import { withDenominators } from './rarity.js'
 import type { Change, Report } from '../model/report.js'
 
 /** Ties break by how far out on the boundary a thing sits. */
@@ -151,8 +152,9 @@ export function toReport(
   changes: readonly Change[],
   gaps: readonly Fact[],
   session: Report['session'],
+  population: readonly Fact[] = [],
 ): Report {
-  const ranked = rank(changes)
+  const ranked = rank(withDenominators(changes, population))
   const { top, also } = split(ranked)
   return { summary: summarise(ranked), top, also, gaps, totalChanges: changes.length, session }
 }

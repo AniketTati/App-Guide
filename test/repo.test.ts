@@ -94,3 +94,40 @@ describe('a repo on disk', () => {
     expect(out).not.toContain('nothing new to the shape')
   })
 })
+
+describe('the headline', () => {
+  it('promotes an unauthenticated route the agent added, with a checkable number', async () => {
+    const base = {
+      'package.json': '{"dependencies":{"express":"^4.0.0"}}',
+      'src/api.ts': `
+        app.get('/api/a', requireAuth, h)
+        app.get('/api/b', requireAuth, h)
+        app.get('/api/c', requireAuth, h)
+      `,
+    }
+    const dir = await repo(base)
+    await receipt(dir, true)
+    await writeFile(join(dir, 'src/api.ts'), `${base['src/api.ts']}\n app.post('/api/admin/reset', h)\n`, 'utf8')
+
+    const out = await receipt(dir)
+    expect(out).toContain('NEW TO THIS CODEBASE')
+    expect(out).toContain('POST /api/admin/reset')
+    expect(out).toContain('1 of 4 routes')
+    expect(out).toContain('src/api.ts')
+    // Arithmetic, never adjective.
+    expect(out).not.toMatch(/danger|insecure|critical|warning|vulnerab/i)
+  })
+
+  it('stays quiet for a route added with the same middleware as its neighbours', async () => {
+    const base = {
+      'package.json': '{"dependencies":{"express":"^4.0.0"}}',
+      'src/api.ts': "app.get('/api/a', requireAuth, h)\napp.get('/api/b', requireAuth, h)\n",
+    }
+    const dir = await repo(base)
+    await receipt(dir, true)
+    await writeFile(join(dir, 'src/api.ts'), `${base['src/api.ts']}app.get('/api/c', requireAuth, h)\n`, 'utf8')
+    const out = await receipt(dir)
+    expect(out).not.toContain('NEW TO THIS CODEBASE')
+    expect(out).toContain('/api/c')
+  })
+})

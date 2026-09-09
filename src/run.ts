@@ -3,6 +3,7 @@ import type { Fact } from './model/facts.js'
 import type { Report } from './model/report.js'
 import * as snapshot from './model/snapshot.js'
 import { scanLibraries } from './extract/libraries.js'
+import { scanRoutes } from './extract/routes/index.js'
 import { compare } from './diff/compare.js'
 import { toReport } from './diff/rank.js'
 
@@ -16,7 +17,7 @@ export interface RunOptions {
 
 export async function run({ root, mark }: RunOptions): Promise<Report> {
   const scan = await scanLibraries(root)
-  const facts = scan.facts
+  const facts = [...scan.facts, ...scanRoutes({ files: scan.files, declared: scan.declared })]
   const gaps = facts.filter((f): f is Extract<Fact, { kind: 'gap' }> => f.kind === 'gap')
 
   const previous = await snapshot.read(root)
@@ -36,7 +37,7 @@ export async function run({ root, mark }: RunOptions): Promise<Report> {
       }]
 
   const report = {
-    ...toReport(changes, [...gaps, ...marker], { files: scan.files.length }),
+    ...toReport(changes, [...gaps, ...marker], { files: scan.files.length }, facts),
     firstRun: !previous.ok,
   }
 

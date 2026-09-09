@@ -1,5 +1,6 @@
 import { parseArgs } from 'node:util'
 import { createRequire } from 'node:module'
+import { run } from './run.js'
 
 const require = createRequire(import.meta.url)
 const { version } = require('../package.json') as { version: string }
@@ -54,9 +55,15 @@ export async function main(argv: string[]): Promise<number> {
 
   const command = positionals[0] ?? 'since'
   switch (command) {
-    case 'since':
-      process.stdout.write('not built yet\n')
+    case 'since': {
+      const report = await run({ root: process.cwd(), mark: values.mark })
+      if (values.json) {
+        process.stdout.write(`${JSON.stringify(report, null, 2)}\n`)
+        return 0
+      }
+      process.stdout.write('terminal renderer not built yet — use --json\n')
       return 0
+    }
     case 'init-hook':
       process.stdout.write('not built yet\n')
       return 0

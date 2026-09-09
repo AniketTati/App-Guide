@@ -382,3 +382,29 @@ Both were caught by reviewers rather than by us, in a project whose thesis is
 that stale documents get trusted while wrong. That is worth remembering the next
 time the plan changes: **the docs drift the same way code does, and for the same
 reason — nothing broke when they were wrong.**
+
+## 15. Step 0 result — the gate passed
+
+Ran 2026-09-09 against the live registries and both READMEs.
+
+77. **`fallow` (npm, v3.23.0) does not produce the inventory signals.** It is a
+    code-*quality* tool: dead code, duplication, complexity, boundary rules,
+    design-system drift. Checked directly — no new-route detection, no
+    new-dependency detection (it does *unused* and *circular*, not *newly
+    introduced*), no outbound-call detection, no table-write attribution.
+78. **But it already owns the delivery surface we designed.**
+    `fallow hooks install --target agent` installs an agent-completion hook;
+    `fallow audit --baseline` does changed-file gating against a saved snapshot.
+    The mechanism we specced is built; the signals are not. **Building standalone
+    means rebuilding a foundation someone else has, to deliver four facts.** That
+    is the honest cost, and it is accepted knowingly rather than by omission.
+79. **`code-review-graph` (PyPI, v2.3.8) is an agent-context tool** — a
+    tree-sitter knowledge graph sold on token savings, with `detect-changes`
+    scoring structural impact on callers and tests. Not inventory, not a delta of
+    facts.
+80. **`appguide` is available on npm.** Claim it early.
+
+**Gate passed: build.** The narrowness is the finding — this is a feature-sized
+gap, not a company-sized one, which is consistent with §11's ceiling of
+approximately zero revenue. Build it because it is useful and cheap, not because
+it is defensible.

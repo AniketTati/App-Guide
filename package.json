@@ -1,0 +1,29 @@
+{
+  "name": "appguide",
+  "version": "0.0.0",
+  "description": "A structural diff for the code your agent just wrote. Deterministic, local, no model.",
+  "keywords": ["static-analysis", "typescript", "routes", "dependencies", "cli"],
+  "license": "Apache-2.0",
+  "author": "Aniket Tatipamula",
+  "repository": { "type": "git", "url": "git+https://github.com/AniketTati/App-Guide.git" },
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "bin": { "appguide": "./dist/cli.js" },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "ts-morph": "^24.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.0.0"
+  }
+}

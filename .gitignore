@@ -45,3 +45,6 @@ venv/
 # .appguide/ is the whole point of this project. It is committed alongside the
 # code it describes, so that `git diff .appguide/` is the architectural diff.
 # Never add it here.
+
+# --- appguide's own output ---
+.appguide/

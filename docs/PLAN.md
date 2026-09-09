@@ -6,7 +6,7 @@ here and nowhere else. Every other document is a detail this one points at.
 If this file and another document disagree, **this file is right and the other
 one is a bug.** Fix it in the same commit that you noticed it.
 
-Last updated: 2026-09-09 (licence set, docs reconciled)
+Last updated: 2026-09-09 (Step 0 passed, building)
 
 ---
 
@@ -18,9 +18,8 @@ Step 0. That is the cheapest and most decisive action available.
 | Stage | State | Gate to leave it |
 |---|---|---|
 | Documentation | ✅ done | plan, problem, decisions, spec written and linked |
-| **Step 0** — verify competitors | ⬜ **do this week** | do `fallow` / `code-review-graph` already do this? |
-| Step 1 — the 4-day evidence test | ⬜ blocked on Step 0 | ≥40% of sessions yield a "glad I saw that" fact |
-| v0 — the receipt | ⬜ not started | G1–G4 |
+| **Step 0** — verify competitors | ✅ **passed** | neither produces the inventory signals ([decisions.md](decisions.md) §15) |
+| **v0 — the receipt** | ⬜ **building** | G1–G4 · steps in [notes/build-steps.md](notes/build-steps.md) |
 | v0.5 — GitHub Action + markdown | ⬜ not started | in someone else's CI |
 | v1 — MCP server | ⬜ not started | someone asks for it |
 | v2 — rules, frozen on first run | ⬜ not started | findings people act on |
@@ -45,7 +44,8 @@ document not listed here does not exist** — see §5.
 | **PLAN.md** (this file) | where we are, what's next, what exists | status, sequencing, the index, doc rules |
 | [problem.md](problem.md) | why this exists, in plain language | the problem statement |
 | [decisions.md](decisions.md) | what we concluded and why | reasoning behind every choice |
-| [notes/v0-spec.md](notes/v0-spec.md) | what v0 actually is — panels, data model, CLI | the v0 product surface |
+| [notes/v0-spec.md](notes/v0-spec.md) | what v0 actually is — the receipt, signals, ranking | the v0 product surface |
+| [notes/build-steps.md](notes/build-steps.md) | numbered implementation steps with definitions of done | how v0 gets built |
 | [notes/flow-levels.md](notes/flow-levels.md) | the four flow-verification levels | what "verified flow" may claim |
 | [../README.md](../README.md) | public face of the repository | the one-paragraph pitch |
 | [../CLAUDE.md](../CLAUDE.md) | agent entry point | where an agent starts reading |

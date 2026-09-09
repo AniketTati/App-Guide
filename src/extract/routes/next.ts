@@ -19,8 +19,9 @@ export const nextAppRouter: RouteDetector = {
   detect({ files }) {
     const facts: Fact[] = []
     for (const file of files) {
-      const src = ts.createSourceFile(file.path, file.text, ts.ScriptTarget.Latest, true)
+      const src = file.ast
       if (/(^|\/)route\.(ts|tsx|js|jsx|mts|mjs)$/.test(file.path)) facts.push(...routeHandlers(file.path, src))
+      facts.push(...pagesApi(file.path, src))
       facts.push(...serverActions(file.path, file.text, src))
     }
     return facts
@@ -48,6 +49,32 @@ function routeHandlers(path: string, src: ts.SourceFile): Fact[] {
     }
   }
   return out
+}
+
+/**
+ * Pages Router API routes. Without this a Pages-Router app got a permanent,
+ * unqualified all-clear over its entire API surface — no routes and no gap,
+ * because 'next' being supported suppressed the blind-spot declaration.
+ */
+function pagesApi(path: string, src: ts.SourceFile): Fact[] {
+  const m = /(^|\/)pages\/api\/(.+)\.(ts|tsx|js|jsx|mts|mjs)$/.exec(path)
+  if (m === null) return []
+  const rest = (m[2] ?? '').replace(/\/index$/, '')
+  const hasDefault = src.statements.some(
+    (stmt) => ts.canHaveModifiers(stmt) &&
+      (ts.getModifiers(stmt) ?? []).some((mod) => mod.kind === ts.SyntaxKind.DefaultKeyword),
+  )
+  if (!hasDefault) return []
+  return [{
+    kind: 'route',
+    // A Pages handler serves every verb; which ones it answers is decided at
+    // runtime inside the function, so claiming one would be a guess.
+    method: 'ANY',
+    path: normalise(`/api/${rest}`),
+    middleware: 'unresolved',
+    framework: 'next-pages-api',
+    where: { file: path, line: 1 },
+  }]
 }
 
 function serverActions(path: string, text: string, src: ts.SourceFile): Fact[] {

@@ -3,7 +3,7 @@ import type { Change, Report } from '../model/report.js'
 import { subject } from '../diff/rank.js'
 import { bold, dim, pad, truncate, width } from './ansi.js'
 
-const KIND_COL = 8
+const KIND_COL = 9 // 'external' is 8 — a column of exactly the widest kind leaves no gap
 const MIN_WIDTH = 60
 const MAX_WIDTH = 100
 /** Short by contract. After twenty three-line receipts, a twenty-line one

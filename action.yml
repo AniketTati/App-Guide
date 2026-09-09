@@ -1,0 +1,76 @@
+name: appguide
+description: A structural diff of what changed on this branch — new routes, dependencies, outbound calls and database writes.
+author: Aniket Tatipamula
+branding: { icon: git-pull-request, color: green }
+
+# Requires full history and permission to comment:
+#
+#   permissions:
+#     contents: read
+#     pull-requests: write
+#   steps:
+#     - uses: actions/checkout@v4
+#       with: { fetch-depth: 0 }     # depth-1 cannot reach the base commit
+#     - uses: AniketTati/App-Guide@main
+
+inputs:
+  base:
+    description: Ref to compare against. Defaults to the PR base, else the previous commit.
+    required: false
+  comment:
+    description: Post the receipt as a PR comment.
+    default: 'true'
+
+outputs:
+  receipt:
+    description: The markdown receipt.
+    value: ${{ steps.run.outputs.receipt }}
+
+runs:
+  using: composite
+  steps:
+    - id: run
+      shell: bash
+      env:
+        # Never interpolate an input directly into a run body.
+        BASE: ${{ inputs.base }}
+        PR_BASE: ${{ github.event.pull_request.base.sha }}
+      run: |
+        set -euo pipefail
+        REF="${BASE:-${PR_BASE:-HEAD~1}}"
+
+        # actions/checkout defaults to depth 1, which cannot reach the base.
+        git rev-parse --verify --quiet "$REF^{commit}" >/dev/null \
+          || git fetch --no-tags --depth=100 origin "$REF" 2>/dev/null \
+          || git fetch --unshallow 2>/dev/null || true
+
+        if ! git rev-parse --verify --quiet "$REF^{commit}" >/dev/null; then
+          echo "::warning::appguide: cannot reach $REF — checkout with fetch-depth: 0"
+          echo 'receipt<<APPGUIDE_EOF' >> "$GITHUB_OUTPUT"
+          echo "appguide could not reach \`$REF\`. Check out with \`fetch-depth: 0\`." >> "$GITHUB_OUTPUT"
+          echo 'APPGUIDE_EOF' >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        HEAD_SHA="$(git rev-parse HEAD)"
+        git checkout --quiet --detach "$REF"
+        npx --yes appguide since --mark --no-color > /dev/null || true
+        git checkout --quiet --detach "$HEAD_SHA"
+
+        # A failure here must not leave GITHUB_OUTPUT with an unterminated
+        # heredoc delimiter, which corrupts every later output in the job.
+        RECEIPT="$(npx --yes appguide since --markdown || echo '_appguide failed to run._')"
+        {
+          echo 'receipt<<APPGUIDE_EOF'
+          echo "$RECEIPT"
+          echo 'APPGUIDE_EOF'
+        } >> "$GITHUB_OUTPUT"
+
+    - if: inputs.comment == 'true' && github.event_name == 'pull_request'
+      shell: bash
+      continue-on-error: true
+      env:
+        GH_TOKEN: ${{ github.token }}
+        BODY: ${{ steps.run.outputs.receipt }}
+        NUMBER: ${{ github.event.pull_request.number }}
+      run: gh pr comment "$NUMBER" --body "$BODY"

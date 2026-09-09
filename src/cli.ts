@@ -1,9 +1,15 @@
 import { parseArgs } from 'node:util'
 import { createRequire } from 'node:module'
+import { realpathSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { run } from './run.js'
 import { renderTerminal } from './render/terminal.js'
 import { setColor } from './render/ansi.js'
 import { installHook } from './hook/install.js'
+import { renderMarkdown } from './render/markdown.js'
+
+/** Bumped whenever the --json shape changes in a way a consumer would notice. */
+export const JSON_SCHEMA_VERSION = 1
 
 const require = createRequire(import.meta.url)
 const { version } = require('../package.json') as { version: string }
@@ -22,6 +28,7 @@ Options
   --all          every change, not just what is new to this codebase
   --mark         record this moment as "the last time you looked"
   --json         emit the raw delta
+  --markdown     for a PR comment or Slack
   --no-color     plain text
   --help, -h     this
   --version, -v  version
@@ -39,6 +46,7 @@ export async function main(argv: string[]): Promise<number> {
         json: { type: 'boolean', default: false },
         'no-color': { type: 'boolean', default: false },
         uninstall: { type: 'boolean', default: false },
+        markdown: { type: 'boolean', default: false },
         help: { type: 'boolean', short: 'h', default: false },
         version: { type: 'boolean', short: 'v', default: false },
       },
@@ -63,7 +71,11 @@ export async function main(argv: string[]): Promise<number> {
     case 'since': {
       const report = await run({ root: process.cwd(), mark: values.mark })
       if (values.json) {
-        process.stdout.write(`${JSON.stringify(report, null, 2)}\n`)
+        process.stdout.write(`${JSON.stringify({ schema: JSON_SCHEMA_VERSION, ...report }, null, 2)}\n`)
+        return 0
+      }
+      if (values.markdown) {
+        process.stdout.write(renderMarkdown(report))
         return 0
       }
       if (values['no-color']) setColor(false)
@@ -88,9 +100,25 @@ export async function main(argv: string[]): Promise<number> {
   }
 }
 
-/** Guarded so importing this module does not run the CLI against cwd — which
- *  is what made it untestable. */
-if (process.argv[1] !== undefined && import.meta.url.endsWith(process.argv[1].split('/').pop() ?? '\u0000')) {
+/**
+ * Guarded so importing this module does not run the CLI against cwd.
+ *
+ * Compares realpaths: npm installs `bin` entries as symlinks, so argv[1] is the
+ * symlink while import.meta.url is the real file. Comparing them any other way
+ * makes the published binary exit 0 with no output — which inside a Stop hook
+ * is indistinguishable from "nothing new to the shape".
+ */
+function isEntrypoint(): boolean {
+  const entry = process.argv[1]
+  if (entry === undefined) return false
+  try {
+    return realpathSync(entry) === realpathSync(fileURLToPath(import.meta.url))
+  } catch {
+    return false
+  }
+}
+
+if (isEntrypoint()) {
   void main(process.argv.slice(2)).then(
     (code) => { process.exitCode = code },
     (err) => {

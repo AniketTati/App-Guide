@@ -90,7 +90,11 @@ export function subject(fact: Fact): string {
  * answers "do I need to read this?" in about three seconds. Built from counts,
  * so it can no more be wrong than the table below it.
  */
-export function summarise(changes: readonly Change[]): string {
+export function summarise(changes: readonly Change[], firstRun = false): string {
+  // A first run has nothing to compare against. Saying "nothing new to the
+  // shape" would be a positive claim with no evidence, and markdown and JSON
+  // consumers keying on this string would be told a falsehood.
+  if (firstRun) return 'first run — mark established, nothing to compare yet'
   if (changes.length === 0) return 'nothing new to the shape'
 
   const added = changes.filter((c) => c.type === 'added')
@@ -153,8 +157,9 @@ export function toReport(
   gaps: readonly Fact[],
   session: Report['session'],
   population: readonly Fact[] = [],
+  firstRun = false,
 ): Report {
   const ranked = rank(withDenominators(changes, population))
   const { top, also } = split(ranked)
-  return { summary: summarise(ranked), top, also, gaps, totalChanges: changes.length, session }
+  return { summary: summarise(ranked, firstRun), top, also, gaps, totalChanges: changes.length, session, firstRun }
 }

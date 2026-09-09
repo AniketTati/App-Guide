@@ -6,7 +6,7 @@ here and nowhere else. Every other document is a detail this one points at.
 If this file and another document disagree, **this file is right and the other
 one is a bug.** Fix it in the same commit that you noticed it.
 
-Last updated: 2026-09-09 (Step 0 passed, building)
+Last updated: 2026-09-09 (v0 built — 106 tests, unpublished)
 
 ---
 
@@ -19,8 +19,8 @@ Step 0. That is the cheapest and most decisive action available.
 |---|---|---|
 | Documentation | ✅ done | plan, problem, decisions, spec written and linked |
 | **Step 0** — verify competitors | ✅ **passed** | neither produces the inventory signals ([decisions.md](decisions.md) §15) |
-| **v0 — the receipt** | ⬜ **building** | G1–G4 · steps in [notes/build-steps.md](notes/build-steps.md) |
-| v0.5 — GitHub Action + markdown | ⬜ not started | in someone else's CI |
+| **v0 — the receipt** | 🟡 **built, unproven** | G1–G4 · steps in [notes/build-steps.md](notes/build-steps.md) |
+| v0.5 — GitHub Action + markdown | 🟡 written, never run in CI | in someone else's CI |
 | v1 — MCP server | ⬜ not started | someone asks for it |
 | v2 — rules, frozen on first run | ⬜ not started | findings people act on |
 
@@ -31,8 +31,12 @@ Step 0. That is the cheapest and most decisive action available.
 
 **Still open**
 
-- **Go / no-go**, pending Step 0 and Step 1. Step 0 is an hour's work and could
-  end the project cheaply — do it before anything else.
+- **Step 1, the 4-day evidence test, was never run.** Building came first. It is
+  still the cheapest thing that could kill this, and it is now cheaper than
+  before because the tool can generate the deltas itself.
+- **G1 (route recall ≥90% against hand-labelled samples) has not been measured.**
+  Detectors are tested against constructed inputs, which is not the same claim.
+- **Not published to npm.** The name is claimed as available, not taken.
 
 ## 2. Document map
 

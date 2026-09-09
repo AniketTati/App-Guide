@@ -3,12 +3,12 @@ import type { Fact } from '../src/model/facts.js'
 import { scanRoutes } from '../src/extract/routes/index.js'
 import { urlFor } from '../src/extract/routes/next.js'
 import { normalise } from '../src/extract/routes/express.js'
+import { parseAll } from '../src/extract/parse.js'
 
-const scan = (files: Record<string, string>, packages: string[]): Fact[] =>
-  scanRoutes({
-    files: Object.entries(files).map(([path, text]) => ({ path, text })),
-    declared: new Set(packages),
-  })
+const scan = (files: Record<string, string>, packages: string[]): Fact[] => {
+  const { parsed, gaps } = parseAll(Object.entries(files).map(([path, text]) => ({ path, text })))
+  return [...gaps, ...scanRoutes({ files: parsed, declared: new Set(packages) })]
+}
 
 const routes = (fs: Fact[]) => fs.filter((f) => f.kind === 'route')
 const gaps = (fs: Fact[]) => fs.filter((f) => f.kind === 'gap')

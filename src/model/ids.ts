@@ -12,7 +12,7 @@ import { stableStringify } from './json.js'
 export function factId(fact: Fact): string {
   switch (fact.kind) {
     case 'route':
-      return `route:${fact.method.toUpperCase()}:${fact.path}`
+      return `route:${fact.method.toUpperCase()}:${fact.path}${fact.scope === undefined ? '' : `@${fact.scope}`}`
     case 'library':
       return `library:${fact.name}`
     case 'external':

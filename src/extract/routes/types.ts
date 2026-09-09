@@ -1,8 +1,8 @@
 import type { Fact } from '../../model/facts.js'
-import type { SourceFile } from '../files.js'
+import type { ParsedFile } from '../parse.js'
 
 export interface RouteContext {
-  files: readonly SourceFile[]
+  files: readonly ParsedFile[]
   /** Declared packages, so a detector can tell whether its framework is here. */
   declared: ReadonlySet<string>
 }

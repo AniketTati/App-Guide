@@ -22,7 +22,14 @@ export interface Where {
 export type Middleware = readonly string[] | 'unresolved'
 
 export type Fact =
-  | { kind: 'route'; method: string; path: string; middleware: Middleware; framework: string; where: Where }
+  | {
+      kind: 'route'; method: string; path: string; middleware: Middleware; framework: string
+      /** Disambiguates routes whose mount prefix could not be resolved. Two
+       *  routers each defining GET /:id are different routes; without this they
+       *  collide on one id and the diff fabricates a change. */
+      scope?: string
+      where: Where
+    }
   | { kind: 'library'; name: string; version: string; direct: boolean; importers: readonly string[]; where: Where }
   | { kind: 'external'; host: string; via: string; where: Where }
   | { kind: 'write'; table: string; module: string; where: Where }

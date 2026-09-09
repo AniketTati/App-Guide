@@ -4,6 +4,10 @@ import type { Report } from './model/report.js'
 import * as snapshot from './model/snapshot.js'
 import { scanLibraries } from './extract/libraries.js'
 import { scanRoutes } from './extract/routes/index.js'
+import { scanExternal } from './extract/external.js'
+import { scanData } from './extract/data.js'
+import { scanExports } from './extract/exports.js'
+import { parseAll } from './extract/parse.js'
 import { compare } from './diff/compare.js'
 import { toReport } from './diff/rank.js'
 
@@ -17,7 +21,19 @@ export interface RunOptions {
 
 export async function run({ root, mark }: RunOptions): Promise<Report> {
   const scan = await scanLibraries(root)
-  const facts = [...scan.facts, ...scanRoutes({ files: scan.files, declared: scan.declared })]
+  const { parsed, gaps: parseGaps } = parseAll(scan.files)
+  // Imported counts as present. In a workspace the root package.json declares
+  // neither the framework nor the ORM, and gating on it alone made routes and
+  // database writes vanish with no gap to say so.
+  const present = new Set([...scan.declared, ...scan.importers.keys()])
+  const facts = [
+    ...scan.facts,
+    ...parseGaps,
+    ...scanRoutes({ files: parsed, declared: present }),
+    ...scanExternal(parsed, scan.importers),
+    ...scanData(parsed, present),
+    ...scanExports(parsed),
+  ]
   const gaps = facts.filter((f): f is Extract<Fact, { kind: 'gap' }> => f.kind === 'gap')
 
   const previous = await snapshot.read(root)
@@ -36,10 +52,7 @@ export async function run({ root, mark }: RunOptions): Promise<Report> {
         where: { file: '.appguide/mark', line: 1 },
       }]
 
-  const report = {
-    ...toReport(changes, [...gaps, ...marker], { files: scan.files.length }, facts),
-    firstRun: !previous.ok,
-  }
+  const report = toReport(changes, [...gaps, ...marker], { files: scan.files.length }, facts, !previous.ok)
 
   // First run establishes the mark and reports nothing: existing state is
   // frozen, so `since` only ever speaks about what is new. Without this the

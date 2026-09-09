@@ -16,25 +16,43 @@ export const express: RouteDetector = {
   detect({ files }) {
     const facts: Fact[] = []
     for (const file of files) {
-      const src = ts.createSourceFile(file.path, file.text, ts.ScriptTarget.Latest, true)
+      const src = file.ast
       const prefixes = mountPrefixes(src)
+      const apps = appBindings(src)
+      if (apps.size === 0) continue
 
       const visit = (node: ts.Node): void => {
         if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
           const method = node.expression.name.text.toLowerCase()
+          const receiver = objectName(node.expression)
           const [first, ...rest] = node.arguments
-          if (METHODS.has(method) && first !== undefined) {
+          // Without this check, `req.get('Authorization')` — Express's own
+          // header API — becomes a route with no middleware and lands straight
+          // in the top block. So does cache.get, searchParams.get, redis.get.
+          if (METHODS.has(method) && first !== undefined && apps.has(receiver)) {
             const line = src.getLineAndCharacterOfPosition(node.getStart(src)).line + 1
             if (ts.isStringLiteralLike(first)) {
-              const prefix = prefixes.get(objectName(node.expression)) ?? ''
+              const prefix = prefixes.get(receiver)
+              const mounted = prefix !== undefined || apps.get(receiver) === 'app'
               facts.push({
                 kind: 'route',
                 method: method === 'all' ? 'ALL' : method.toUpperCase(),
-                path: normalise(`${prefix}${first.text}`),
+                path: normalise(`${prefix ?? ''}${first.text}`),
                 middleware: middlewareOf(rest, src),
                 framework: 'express',
+                // A router mounted in another file has an unknown prefix. Two
+                // such routers can legitimately share a path, so scope them by
+                // the file that defines them.
+                ...(mounted ? {} : { scope: file.path }),
                 where: { file: file.path, line },
               })
+              if (!mounted) {
+                facts.push({
+                  kind: 'gap', reason: 'computed-route-path', subject: `${file.path}:${line}`,
+                  detail: 'router is mounted elsewhere — the real path has a prefix I cannot see',
+                  where: { file: file.path, line },
+                })
+              }
             } else if (rest.length > 0) {
               // A computed path is a route we know exists and cannot name.
               facts.push({
@@ -51,6 +69,31 @@ export const express: RouteDetector = {
     }
     return facts
   },
+}
+
+/**
+ * Identifiers that are actually an Express app or router. Everything with a
+ * `.get()` is not a route; most of them are maps, caches and header bags.
+ */
+function appBindings(src: ts.SourceFile): Map<string, 'app' | 'router'> {
+  const out = new Map<string, 'app' | 'router'>()
+  const visit = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer !== undefined) {
+      const init = node.initializer
+      if (ts.isCallExpression(init)) {
+        const callee = init.expression
+        if (ts.isIdentifier(callee) && callee.text === 'express') out.set(node.name.text, 'app')
+        else if (ts.isIdentifier(callee) && callee.text === 'Router') out.set(node.name.text, 'router')
+        else if (ts.isPropertyAccessExpression(callee) && callee.name.text === 'Router') out.set(node.name.text, 'router')
+      }
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(src)
+  // `app` is conventional enough to accept without a local declaration; a file
+  // that only receives it as a parameter is still defining real routes.
+  if (!out.has('app')) out.set('app', 'app')
+  return out
 }
 
 /** `app.use('/api', router)` → router carries the '/api' prefix. */

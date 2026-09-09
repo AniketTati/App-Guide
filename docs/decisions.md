@@ -408,3 +408,35 @@ Ran 2026-09-09 against the live registries and both READMEs.
 gap, not a company-sized one, which is consistent with §11's ceiling of
 approximately zero revenue. Build it because it is useful and cheap, not because
 it is defensible.
+
+## 16. What building it taught us
+
+81. **Two adversarial reviews found ten paths to a confident, unfounded
+    all-clear.** Every one lived in code that touches the filesystem or the
+    parser, and none had a test. The worst: `npm` installs `bin` entries as
+    symlinks, so the entrypoint guard never matched and **the published binary
+    exited 0 with no output** — inside a Stop hook, indistinguishable from
+    "nothing new to the shape". No unit test can catch that; it needs a test
+    that invokes the built file through a symlink.
+82. **`JSON.stringify`'s array replacer is a recursive property allow-list**,
+    not a key-order hint. Passing `Object.keys(obj)` silently deleted every
+    nested object, so `where` vanished from every serialised fact.
+83. **The false positives were worse than the false negatives.** `req.get(
+    'Authorization')` — Express's own header API — became a route with no
+    middleware and went straight to the top block. So did `<svg xmlns=…>` as an
+    outbound call, and `Array.from(nodes)` as a database read. A tool that cries
+    wolf three times per session is deleted faster than one that misses things.
+    Every detector now requires a resolved binding: an actual `express()` or
+    `Router()` value, a URL in call-argument position, a table declared with
+    `pgTable`.
+84. **Denominators must compare like with like.** Next routes are always
+    `middleware: 'unresolved'`, and counting them in the denominator of a
+    *middleware* claim both understated the ratio and silently disabled the
+    "this is the codebase's norm" suppression. Ten server actions were enough to
+    turn a correctly-suppressed finding into a false alarm.
+85. **Parse once.** Five passes over the same bytes was roughly half the
+    runtime, on a tool that runs after every agent session.
+86. **Known limits, recorded rather than discovered:** tRPC, NestJS, Hono and
+    Fastify routes are not read (declared as blind spots); Next middleware
+    matchers are not resolved; workspace member manifests are not walked, only
+    imports; `export * from` is invisible; exports churn when a file is renamed.

@@ -17,7 +17,16 @@ interface PackageJson {
  * this tool exists to prevent.
  */
 /** Frameworks a detector already handles — never declare these as blind spots. */
-const SUPPORTED = new Set(['express', 'next'])
+const SUPPORTED = new Set(['express', 'next', '@prisma/client', 'drizzle-orm'])
+
+/**
+ * Capabilities a package has that we do NOT read, even though we read something
+ * else about it. Suppressing the whole package because one detector exists is
+ * how a Pages Router app got an unqualified all-clear over its API surface.
+ */
+const PARTIAL: Record<string, string> = {
+  next: 'Next middleware.ts matchers are not resolved, so route middleware shows as unresolved',
+}
 
 const UNSUPPORTED: Record<string, string> = {
   '@trpc/server': 'routes',
@@ -115,6 +124,14 @@ export async function scanLibraries(root: string): Promise<LibraryScan> {
       kind: 'library', name,
       version: (await installedVersion(root, name)) ?? meta.range,
       direct: true, importers: [], where: { file: 'package.json', line: 1 },
+    })
+  }
+
+  for (const [pkg, detail] of Object.entries(PARTIAL)) {
+    if (!declared.has(pkg)) continue
+    facts.push({
+      kind: 'gap', reason: 'unsupported-framework', subject: pkg, detail,
+      where: { file: 'package.json', line: 1 },
     })
   }
 

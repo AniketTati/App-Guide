@@ -11,15 +11,19 @@ import type { Change, Denominator } from '../model/report.js'
  * is how the receipt stays quiet enough to be read.
  */
 export function withDenominators(changes: readonly Change[], all: readonly Fact[]): Change[] {
-  const routes = all.filter((f) => f.kind === 'route')
-  const bare = routes.filter((f) => f.kind === 'route' && f.middleware !== 'unresolved' && f.middleware.length === 0)
+  // Only routes whose middleware is knowable. Next handlers and server actions
+  // are always 'unresolved', so counting them in the denominator of a
+  // middleware claim both understates the ratio and silently disables the
+  // "this is the codebase's norm" suppression below.
+  const resolvable = all.filter((f) => f.kind === 'route' && f.middleware !== 'unresolved')
+  const bare = resolvable.filter((f) => f.kind === 'route' && f.middleware !== 'unresolved' && f.middleware.length === 0)
   const libs = all.filter((f) => f.kind === 'library')
   const externals = all.filter((f) => f.kind === 'external')
   const writers = new Map<string, number>()
   for (const f of all) if (f.kind === 'write') writers.set(f.table, (writers.get(f.table) ?? 0) + 1)
 
   return changes.map((change) => {
-    const d = denominatorFor(change, { routes: routes.length, bare: bare.length, libs: libs.length, externals, writers })
+    const d = denominatorFor(change, { routes: resolvable.length, bare: bare.length, libs: libs.length, externals, writers })
     return d === null ? change : { ...change, denominator: d }
   })
 }
@@ -48,7 +52,12 @@ function denominatorFor(change: Change, pop: Population): Denominator | null {
     // Every added write fact is by construction the first from that module —
     // which is why firstness self-extinguishes: the second time round the fact
     // already exists and is not an addition at all.
+    //
+    // But "1 of 1 modules write X" says nothing: a brand new table written by
+    // one module is not a boundary being crossed. Only claim it when there is
+    // an established set to be the exception to.
     const total = pop.writers.get(f.table) ?? 1
+    if (total < 2) return null
     return { property: `first write from ${f.module}`, matching: 1, total, noun: `modules write ${f.table}` }
   }
 
@@ -58,8 +67,10 @@ function denominatorFor(change: Change, pop: Population): Denominator | null {
   }
 
   if (f.kind === 'external') {
+    // Same reasoning: "1 of 1 external calls" is a vacuous ratio.
+    if (pop.externals.length < 2) return null
     const sameHost = pop.externals.filter((e) => e.kind === 'external' && e.host === f.host).length
-    return { property: `new outbound call`, matching: sameHost, total: pop.externals.length, noun: 'external calls' }
+    return { property: 'new outbound call', matching: sameHost, total: pop.externals.length, noun: 'external calls' }
   }
 
   return null

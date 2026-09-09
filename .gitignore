@@ -41,10 +41,9 @@ venv/
 # --- Local agent state (machine-specific) ---
 .claude/settings.local.json
 
-# --- NOT ignored, deliberately ---
-# .appguide/ is the whole point of this project. It is committed alongside the
-# code it describes, so that `git diff .appguide/` is the architectural diff.
-# Never add it here.
-
-# --- appguide's own output ---
 .appguide/
+
+# --- note ---
+# .appguide/ holds the local session mark. It is deliberately NOT committed:
+# a mark is "the last time you looked", which is per-machine. An earlier design
+# committed a blueprint here; that design is gone (docs/decisions.md #49).

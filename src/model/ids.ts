@@ -1,4 +1,5 @@
 import type { Fact } from './facts.js'
+import { stableStringify } from './json.js'
 
 /**
  * A fact's id is derived from its identity fields only — never from position,
@@ -33,7 +34,9 @@ export function factPayload(fact: Fact): Record<string, unknown> {
     case 'route':
       return { middleware: fact.middleware, framework: fact.framework, where: fact.where }
     case 'library':
-      return { version: fact.version, direct: fact.direct, importers: [...fact.importers].sort(), where: fact.where }
+      // `importers` is provenance in exactly the sense `where` is: renaming a
+      // file that imports a package must not report the package as changed.
+      return { version: fact.version, direct: fact.direct, imported: fact.importers.length > 0, where: fact.where }
     case 'external':
       return { where: fact.where }
     case 'write':
@@ -53,5 +56,5 @@ export function factPayload(fact: Fact): Record<string, unknown> {
  */
 export function payloadDigest(fact: Fact): string {
   const { where: _where, ...rest } = factPayload(fact) as { where?: unknown }
-  return JSON.stringify(rest, Object.keys(rest).sort())
+  return stableStringify(rest)
 }

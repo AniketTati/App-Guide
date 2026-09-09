@@ -1,6 +1,8 @@
 import { parseArgs } from 'node:util'
 import { createRequire } from 'node:module'
 import { run } from './run.js'
+import { renderTerminal } from './render/terminal.js'
+import { setColor } from './render/ansi.js'
 
 const require = createRequire(import.meta.url)
 const { version } = require('../package.json') as { version: string }
@@ -61,7 +63,9 @@ export async function main(argv: string[]): Promise<number> {
         process.stdout.write(`${JSON.stringify(report, null, 2)}\n`)
         return 0
       }
-      process.stdout.write('terminal renderer not built yet — use --json\n')
+      if (values['no-color']) setColor(false)
+      const shown = values.all ? { ...report, also: [...report.top, ...report.also], top: [] } : report
+      process.stdout.write(renderTerminal(shown, { hiddenCount: report.totalChanges }))
       return 0
     }
     case 'init-hook':
@@ -73,10 +77,14 @@ export async function main(argv: string[]): Promise<number> {
   }
 }
 
-main(process.argv.slice(2)).then(
-  (code) => { process.exitCode = code },
-  (err) => {
-    process.stderr.write(`${err instanceof Error ? err.stack : String(err)}\n`)
-    process.exitCode = 1
-  },
-)
+/** Guarded so importing this module does not run the CLI against cwd — which
+ *  is what made it untestable. */
+if (process.argv[1] !== undefined && import.meta.url.endsWith(process.argv[1].split('/').pop() ?? '\u0000')) {
+  void main(process.argv.slice(2)).then(
+    (code) => { process.exitCode = code },
+    (err) => {
+      process.stderr.write(`${err instanceof Error ? err.stack : String(err)}\n`)
+      process.exitCode = 1
+    },
+  )
+}

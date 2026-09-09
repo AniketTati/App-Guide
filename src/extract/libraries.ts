@@ -39,19 +39,21 @@ export interface LibraryScan {
 }
 
 export async function scanLibraries(root: string): Promise<LibraryScan> {
-  const files = await discover(root)
+  const { files, gaps } = await discover(root)
   const manifest = await readManifest(root)
-  const declared = new Map<string, { version: string; direct: boolean }>()
+  const declared = new Map<string, { range: string; dev: boolean }>()
 
-  for (const [name, version] of Object.entries(manifest.dependencies ?? {})) {
-    declared.set(name, { version, direct: true })
+  for (const group of ['dependencies', 'optionalDependencies', 'peerDependencies'] as const) {
+    for (const [name, range] of Object.entries(manifest[group] ?? {})) {
+      if (!declared.has(name)) declared.set(name, { range, dev: false })
+    }
   }
-  for (const [name, version] of Object.entries(manifest.devDependencies ?? {})) {
-    if (!declared.has(name)) declared.set(name, { version, direct: true })
+  for (const [name, range] of Object.entries(manifest.devDependencies ?? {})) {
+    if (!declared.has(name)) declared.set(name, { range, dev: true })
   }
 
   const importers = new Map<string, string[]>()
-  const facts: Fact[] = []
+  const facts: Fact[] = [...gaps, ...manifest.__gaps]
 
   for (const file of files) {
     let specifiers: readonly string[]
@@ -76,16 +78,28 @@ export async function scanLibraries(root: string): Promise<LibraryScan> {
     }
   }
 
-  for (const [name, list] of [...importers].sort()) {
+  for (const [name, list] of [...importers].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
     const known = declared.get(name)
     facts.push({
       kind: 'library',
       name,
-      version: known?.version ?? 'unknown',
-      direct: known?.direct ?? false,
+      // The installed version, not the declared range: a lockfile-only bump
+      // inside `^2.6.7` is exactly the supply-chain event worth catching, and
+      // a range would report it as no change at all.
+      version: (await installedVersion(root, name)) ?? known?.range ?? 'unknown',
+      direct: known !== undefined,
       importers: list.sort(),
       where: { file: 'package.json', line: 1 },
     })
+    if (known === undefined) {
+      // Imported but declared nowhere. Far more interesting than "transitive",
+      // which is what an earlier version called it.
+      facts.push({
+        kind: 'gap', reason: 'unresolved-import', subject: name,
+        detail: 'imported but not in package.json',
+        where: { file: list[0] ?? 'package.json', line: 1 },
+      })
+    }
   }
 
   // Declared but never imported. Reported as a fact so it can be diffed like
@@ -93,8 +107,9 @@ export async function scanLibraries(root: string): Promise<LibraryScan> {
   for (const [name, meta] of declared) {
     if (importers.has(name)) continue
     facts.push({
-      kind: 'library', name, version: meta.version, direct: meta.direct,
-      importers: [], where: { file: 'package.json', line: 1 },
+      kind: 'library', name,
+      version: (await installedVersion(root, name)) ?? meta.range,
+      direct: true, importers: [], where: { file: 'package.json', line: 1 },
     })
   }
 
@@ -110,10 +125,54 @@ export async function scanLibraries(root: string): Promise<LibraryScan> {
   return { facts, files, importers }
 }
 
-async function readManifest(root: string): Promise<PackageJson> {
+/**
+ * An unreadable manifest must never fail into the same shape as an empty one.
+ * Silently returning {} erases the entire unsupported-framework declaration and
+ * substitutes a confident all-clear — the exact silence this tool exists to
+ * prevent, caused by a trailing comma.
+ */
+async function readManifest(root: string): Promise<PackageJson & { __gaps: Fact[] }> {
+  const path = join(root, 'package.json')
+  let text: string
   try {
-    return JSON.parse(await readFile(join(root, 'package.json'), 'utf8')) as PackageJson
-  } catch {
-    return {}
+    text = await readFile(path, 'utf8')
+  } catch (err) {
+    const missing = (err as NodeJS.ErrnoException).code === 'ENOENT'
+    return {
+      __gaps: [{
+        kind: 'gap', reason: 'parse-error', subject: 'package.json',
+        detail: missing ? 'no package.json here — dependencies cannot be checked' : 'package.json could not be read',
+        where: { file: 'package.json', line: 1 },
+      }],
+    }
   }
+  try {
+    return { ...(JSON.parse(text) as PackageJson), __gaps: [] }
+  } catch (err) {
+    return {
+      __gaps: [{
+        kind: 'gap', reason: 'parse-error', subject: 'package.json',
+        detail: `package.json is not valid JSON (${(err as Error).message.split('\n')[0]}) — dependencies cannot be checked`,
+        where: { file: 'package.json', line: 1 },
+      }],
+    }
+  }
+}
+
+const versionCache = new Map<string, string | null>()
+
+async function installedVersion(root: string, name: string): Promise<string | null> {
+  const key = `${root}\u0000${name}`
+  const hit = versionCache.get(key)
+  if (hit !== undefined) return hit
+  let found: string | null = null
+  try {
+    const text = await readFile(join(root, 'node_modules', ...name.split('/'), 'package.json'), 'utf8')
+    const v = (JSON.parse(text) as { version?: unknown }).version
+    found = typeof v === 'string' ? v : null
+  } catch {
+    found = null
+  }
+  versionCache.set(key, found)
+  return found
 }

@@ -8,8 +8,12 @@ import type { Change } from '../model/report.js'
  * keep alive across a refactor, only an id to match.
  */
 export function compare(before: readonly Fact[], after: readonly Fact[]): Change[] {
-  const prior = new Map(before.map((f) => [factId(f), f]))
-  const current = new Map(after.map((f) => [factId(f), f]))
+  // Gaps describe what the tool could not read, not what the code did. They
+  // travel in their own channel; diffing them would report the same blind spot
+  // twice, once as a change and once as a coverage note.
+  const real = (f: Fact): boolean => f.kind !== 'gap'
+  const prior = new Map(before.filter(real).map((f) => [factId(f), f]))
+  const current = new Map(after.filter(real).map((f) => [factId(f), f]))
   const changes: Change[] = []
 
   for (const [id, fact] of current) {

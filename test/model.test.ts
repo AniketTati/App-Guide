@@ -63,25 +63,59 @@ describe('snapshot', () => {
       route(),
       { kind: 'library', name: '@scope/pkg', version: '1.0.0', direct: true, importers: ['src/a.ts'], where: { file: 'package.json', line: 1 } },
       { kind: 'gap', reason: 'unsupported-framework', subject: 'hono', detail: 'no extractor', where: { file: 'package.json', line: 1 } },
+      // The cases that used to corrupt: a colon in a value that is not a route path.
+      { kind: 'external', host: 'localhost:3000', via: 'fetch', where: { file: 'src/dev.ts', line: 3 } },
+      { kind: 'export', module: 'src/a:b.ts', symbol: 'go', where: { file: 'src/a:b.ts', line: 9 } },
+      { kind: 'write', table: 'users', module: 'src/billing/日本語.ts', where: { file: 'src/billing/日本語.ts', line: 4 } },
     ] satisfies Fact[],
   }
 
-  it('round-trips losslessly by identity and payload', () => {
-    const back = parse(serialise(snap))
-    expect(back.facts.map(factId).sort()).toEqual(snap.facts.map(factId).sort())
-    for (const fact of back.facts) {
-      const original = snap.facts.find((f) => factId(f) === factId(fact))!
-      expect(payloadDigest(fact)).toBe(payloadDigest(original))
-    }
+  const ok = (text: string) => {
+    const r = parse(text)
+    if (!r.ok) throw new Error(`expected ok, got ${r.reason}: ${r.detail}`)
+    return r.snapshot
+  }
+
+  const byId = (fs: readonly Fact[]) => [...fs].sort((a, b) => (factId(a) < factId(b) ? -1 : 1))
+
+  it('round-trips every field exactly, provenance included', () => {
+    // where/file/line must survive: an earlier serialiser used JSON.stringify's
+    // array replacer, which is a recursive allow-list, and silently deleted
+    // every nested object.
+    expect(byId(ok(serialise(snap)).facts)).toEqual(byId(snap.facts))
+  })
+
+  it('preserves a colon in a value that is not a route path', () => {
+    const back = ok(serialise(snap)).facts
+    expect(back.find((f) => f.kind === 'external')).toMatchObject({ host: 'localhost:3000', via: 'fetch' })
+    expect(back.find((f) => f.kind === 'export')).toMatchObject({ module: 'src/a:b.ts', symbol: 'go' })
   })
 
   it('is byte-identical when nothing changed', () => {
     expect(serialise(snap)).toBe(serialise({ ...snap, facts: [...snap.facts].reverse() }))
   })
 
-  it('survives colons in names', () => {
-    const back = parse(serialise(snap))
-    const lib = back.facts.find((f) => f.kind === 'library')
-    expect(lib).toMatchObject({ name: '@scope/pkg' })
+  it('refuses a snapshot from a different version rather than misreading it', () => {
+    const r = parse(serialise(snap).replace('appguide-snapshot 2', 'appguide-snapshot 99'))
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.reason).toBe('wrong-version')
+  })
+
+  it('refuses a conflicted mark rather than merging both sides', () => {
+    const conflicted = serialise(snap).replace('# taken', '<<<<<<< HEAD\n# taken')
+    const r = parse(conflicted)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.detail).toContain('conflict')
+  })
+
+  it('refuses a truncated mark rather than reporting a phantom deletion', () => {
+    const r = parse(`${serialise(snap).slice(0, -40)}`)
+    expect(r.ok).toBe(false)
+  })
+
+  it('does not report a library as changed when an importing file is renamed', () => {
+    const a: Fact = { kind: 'library', name: 'zod', version: '1.0.0', direct: true, importers: ['src/api/users.ts'], where: { file: 'package.json', line: 1 } }
+    const b: Fact = { ...a, importers: ['src/api/user.ts'] }
+    expect(payloadDigest(a)).toBe(payloadDigest(b))
   })
 })

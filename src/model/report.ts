@@ -43,4 +43,10 @@ export interface Report {
   /** For "appguide since --all (23)". */
   totalChanges: number
   session: { files: number; from?: string; to?: string }
+  /**
+   * True when there was no usable previous mark. A first run has nothing to
+   * compare against, and must never be rendered as an all-clear — that would
+   * be a positive claim with no evidence behind it.
+   */
+  firstRun?: boolean
 }

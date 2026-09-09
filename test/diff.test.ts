@@ -78,11 +78,21 @@ describe('the top-block invariant', () => {
 
 describe('summary', () => {
   it('says so plainly when nothing happened', () => {
-    expect(summarise([], [])).toBe('nothing new to the shape')
+    expect(summarise([])).toBe('nothing new to the shape')
   })
-  it('counts the overflow rather than listing it', () => {
-    const changes = compare([], [lib('a'), lib('b'), lib('c'), lib('d')])
-    expect(summarise([], rank(changes))).toBe('a, b, and 2 more')
+  it('names a single dependency', () => {
+    expect(summarise(compare([], [lib('zod')]))).toBe('Your agent pulled in zod.')
+  })
+  it('counts several rather than listing them', () => {
+    expect(summarise(compare([], [lib('a'), lib('b'), lib('c')]))).toBe('Your agent pulled in 3 dependencies.')
+  })
+  it('calls out routes with no middleware', () => {
+    const changes = compare([], [route('/a', []), route('/b')])
+    expect(summarise(changes)).toBe('Your agent added 2 routes, one with no middleware.')
+  })
+  it('joins clauses in English', () => {
+    const changes = compare([], [route('/a', []), lib('zod')])
+    expect(summarise(changes)).toBe('Your agent added 1 route, one with no middleware, and pulled in zod.')
   })
 })
 

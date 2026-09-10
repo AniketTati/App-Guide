@@ -1,5 +1,6 @@
 import type { Change, Report } from '../model/report.js'
 import { subject } from '../diff/rank.js'
+import { words, type Voice } from './words.js'
 
 /**
  * A prompt the reader can hand to their agent verbatim.
@@ -9,17 +10,18 @@ import { subject } from '../diff/rank.js'
  * on a finding themselves can still forward one, without having to describe in
  * their own words a thing they do not have words for.
  */
-export function ask(report: Report, index: number): string | null {
+export function ask(report: Report, index: number, voice: Voice = 'technical'): string | null {
   const all = [...report.top, ...report.also]
   const change = all[index - 1]
   if (change === undefined) return null
+  const w = words(voice)
 
   const f = change.fact
   const where = `${f.where.file}:${f.where.line}`
   const lines = [
     `In my codebase, appguide reports this changed since I last looked:`,
     '',
-    `  ${change.type} ${f.kind}: ${subject(f)}`,
+    `  ${change.type} ${w.kind(f)}: ${subject(f)}`,
     `  at ${where}`,
   ]
 
@@ -44,8 +46,8 @@ function context(change: Change): string[] {
   switch (f.kind) {
     case 'route':
       return f.middleware === 'unresolved'
-        ? ['  I could not determine what checks run before this handler.']
-        : [`  Checks that run first: ${f.middleware.length === 0 ? 'none' : f.middleware.join(', ')}`]
+        ? ['  I could not determine what runs before it.']
+        : [`  Things that run first: ${f.middleware.length === 0 ? 'nothing' : f.middleware.join(', ')}`]
     case 'library':
       return [`  Version ${f.version}${f.direct ? '' : ', not listed in package.json'}`,
         ...(f.importers.length > 0 ? [`  Imported by: ${f.importers.slice(0, 5).join(', ')}`] : [])]

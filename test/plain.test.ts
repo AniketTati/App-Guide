@@ -82,11 +82,62 @@ describe('a reader who does not write code', () => {
     expect(await plain(dir)).toContain("I can't read hono yet")
   })
 
+  it('is told how to clear the list, or it repeats forever', async () => {
+    // Not being wrong gets a tool uninstalled far more slowly than not
+    // shutting up.
+    const { dir } = await scenario()
+    expect(await plain(dir)).toContain('appguide seen')
+  })
+
+  it('never contradicts its own number', async () => {
+    // "4 of 9 URLs have nothing checking them" printed directly above "every
+    // other URL is checked" destroys the one thing the reader was asked to
+    // trust: that the counts are checkable.
+    const dir = await mkdtemp(join(tmpdir(), 'plain-c2-'))
+    await mkdir(join(dir, 'src'), { recursive: true })
+    await writeFile(join(dir, 'package.json'), '{"dependencies":{"express":"^4.0.0"}}')
+    const guarded = Array.from({ length: 6 }, (_, i) => `app.get('/g${i}', requireAuth, h)`).join('\n')
+    await writeFile(join(dir, 'src/api.ts'), `const app = express()\n${guarded}`)
+    await run({ root: dir, mark: true })
+    await writeFile(join(dir, 'src/api.ts'),
+      `const app = express()\n${guarded}\napp.get('/a', h)\napp.get('/b', h)\napp.get('/c', h)\n`)
+    const out = renderTerminal(await run({ root: dir, mark: false, voice: 'plain' }), { columns: 78, voice: 'plain' })
+    if (out.includes('every other URL is checked')) {
+      expect(out).toMatch(/nothing checks it · 1 of \d+/)
+    }
+  })
+
+  it('does not let three of one kind crowd out every other kind', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'plain-d-'))
+    await mkdir(join(dir, 'src'), { recursive: true })
+    await writeFile(join(dir, 'package.json'), '{"dependencies":{"express":"^4.0.0","@prisma/client":"^5.0.0"}}')
+    const guarded = Array.from({ length: 6 }, (_, i) => `app.get('/g${i}', requireAuth, h)`).join('\n')
+    await writeFile(join(dir, 'src/api.ts'), `const app = express()\n${guarded}`)
+    await mkdir(join(dir, 'src/auth'), { recursive: true })
+    await mkdir(join(dir, 'src/billing'), { recursive: true })
+    await writeFile(join(dir, 'src/auth/db.ts'), 'prisma.users.update({})')
+    await run({ root: dir, mark: true })
+    await writeFile(join(dir, 'src/api.ts'),
+      `const app = express()\n${guarded}\napp.get('/a', h)\napp.get('/b', h)\napp.get('/c', h)\n`)
+    await writeFile(join(dir, 'src/billing/pay.ts'), "prisma.users.update({})\nawait fetch('https://api.stripe.com/x')")
+    const r = await run({ root: dir, mark: false, voice: 'plain' })
+    const kinds = new Set(r.top.map((c) => c.fact.kind))
+    expect(kinds.size).toBeGreaterThan(1)
+  })
+
+  it('does not report its own notes as a problem with the code', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'plain-m-'))
+    await writeFile(join(dir, 'package.json'), '{}')
+    const out = renderTerminal(await run({ root: dir, mark: true, voice: 'plain' }), { columns: 78, voice: 'plain' })
+    expect(out).not.toContain('.appguide')
+    expect(out).not.toContain('package list')
+  })
+
   it('holds the layout at a narrow terminal', async () => {
     const { dir } = await scenario()
-    for (const cols of [60, 78, 100]) {
+    for (let cols = 60; cols <= 100; cols++) {
       for (const line of (await plain(dir, cols)).split('\n')) {
-        expect(line.length, `${cols}: ${line}`).toBeLessThanOrEqual(Math.max(60, Math.min(100, cols)))
+        expect(line.length, `${cols}: ${line}`).toBeLessThanOrEqual(cols)
       }
     }
   })
@@ -130,5 +181,24 @@ describe('choosing the voice once', () => {
 
   it('works with no config at all', async () => {
     expect((await readConfig(await mkdtemp(join(tmpdir(), 'plain-n-')))).plain).toBe(false)
+  })
+})
+
+describe('install honesty', () => {
+  it('refuses to claim success on a hook it could not run', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'plain-i-'))
+    // No package.json named appguide, so it writes the npx command — which
+    // cannot resolve until the package is published.
+    const r = await installHook(dir, false, true)
+    expect(r.outcome).toBe('installed')
+    expect(r.verified).toBe(false)
+    expect(r.problem).toBeTruthy()
+  })
+
+  it('verifies successfully when the command really runs', async () => {
+    // In this repo the hook points at the local build.
+    const r = await installHook(process.cwd(), false, false)
+    expect(r.verified).toBe(true)
+    await installHook(process.cwd(), true, false)
   })
 })

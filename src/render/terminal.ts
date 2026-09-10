@@ -42,7 +42,10 @@ function allClear(report: Report, cols: number, voice: Voice): string {
         ? "first look — I've made a note of what's here. Run again after your next session."
         : 'first run — mark established, nothing to compare yet')
     : w.headline(report)
-  const lines = [` ${bold('appguide')} ${dim('·')} ${session(report)} ${dim('·')} ${headline}`]
+  const head = ` ${bold('appguide')} ${dim('·')} ${session(report)} ${dim('·')} `
+  const lines = width(head) + width(headline) <= cols
+    ? [`${head}${headline}`]
+    : [` ${bold('appguide')} ${dim('·')} ${session(report)}`, `   ${dim(truncate(headline, cols - 4))}`]
   const cover = coverageLines(report.gaps, cols, voice)
   lines.push(...(cover.length > 0
     ? cover
@@ -76,7 +79,7 @@ function full(report: Report, cols: number, opts: TerminalOptions): string {
   }
 
   const hidden = opts.hiddenCount ?? report.totalChanges
-  const footer = ['', `   ${dim(truncate(w.footer(hidden, report.top.length > 0, cols), cols - 4))}`]
+  const footer = ['', ...w.footer(hidden, report.top.length > 0, cols).split('\n').map((l) => `   ${dim(truncate(l, cols - 4))}`)]
 
   // Everything above is fixed cost. `also` is the only section allowed to give
   // ground — the coverage block never is, because a receipt that drops its own
@@ -147,7 +150,10 @@ function prose(summary: string, cols: number): string[] {
  */
 function entry(change: Change, cols: number, showEvidence: boolean, voice: Voice = 'technical', index = 0): string[] {
   const w = words(voice)
-  const gutter = 3 + KIND_COL
+  // The "#1" label is 3 columns wider than the plain marker, and forgetting it
+  // here is what pushed lines past the rule.
+  const numberWidth = voice === 'plain' && index > 0 ? 3 : 0
+  const gutter = 3 + KIND_COL + numberWidth
   const rest = cols - gutter - 1
   const subjWidth = Math.max(18, Math.floor(rest * 0.45))
   const rightWidth = rest - subjWidth
@@ -164,15 +170,15 @@ function entry(change: Change, cols: number, showEvidence: boolean, voice: Voice
   const right = fits ? full : truncate(ratio, rightWidth)
 
   const label = index > 0 && voice === 'plain' ? dim(`#${index}`) : dim(marker)
-  const lines = [`  ${pad(label, voice === 'plain' && index > 0 ? 4 : 1)}${dim(kind)}${subj} ${dim(right)}`.trimEnd()]
+  const lines = [`  ${pad(label, 1 + numberWidth)}${dim(kind)}${subj} ${dim(right)}`.trimEnd()]
   if (showEvidence) {
     const where = `${change.fact.where.file}:${change.fact.where.line}`
     const note = fits ? secondary(change, voice) : property
     lines.push(
-      `${' '.repeat(gutter + (voice === 'plain' && index > 0 ? 3 : 0))}${dim(pad(truncate(where, subjWidth), subjWidth))} ${dim(truncate(note, rightWidth))}`.trimEnd(),
+      `${' '.repeat(gutter)}${dim(pad(truncate(where, subjWidth), subjWidth))} ${dim(truncate(note, rightWidth))}`.trimEnd(),
     )
     const why = w.why(change)
-    if (why !== '') lines.push(`${' '.repeat(gutter + (voice === 'plain' ? 3 : 0))}${dim(truncate(why, cols - gutter - 5))}`)
+    if (why !== '') lines.push(`${' '.repeat(gutter)}${dim(truncate(why, cols - gutter - 1))}`)
   }
   return lines
 }
@@ -190,8 +196,11 @@ function corroboration(change: Change, voice: Voice = 'technical'): { full: stri
     // counts is exactly the ambiguity the denominator rule exists to remove.
     return {
       full: `${prop} · ${ratio}`,
-      ratio: `${d.matching}/${d.total} ${prop}`,
-      property: ratio,
+      ratio: voice === 'plain' ? ratio : `${d.matching}/${d.total} ${prop}`,
+      // In plain the ratio is already in the right column, so the fallback
+      // line carries the words instead — printing the same number twice, one
+      // line apart, reads as a mistake.
+      property: voice === 'plain' ? prop : ratio,
     }
   }
   const text = w.detail(change)
@@ -220,7 +229,9 @@ function secondary(change: Change, voice: Voice = 'technical'): string {
   if (others <= 0) return ''
   const plain = voice === 'plain'
   switch (change.fact.kind) {
-    case 'route': return plain ? 'every other URL is checked' : 'every other route has one'
+    case 'route': return d.matching === 1
+      ? (plain ? 'every other URL is checked' : 'every other route has one')
+      : (plain ? `${others} of the rest are checked` : `${others} others have one`)
     case 'write': return plain
       ? `${others} other place${others === 1 ? '' : 's'} already could`
       : `${others} other module${others === 1 ? '' : 's'} write it`

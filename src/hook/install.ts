@@ -1,5 +1,9 @@
 import { readFile, writeFile, mkdir, rename } from 'node:fs/promises'
 import { join } from 'node:path'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+
+const exec = promisify(execFile)
 
 const SETTINGS = ['.claude', 'settings.json']
 const NPX = 'npx appguide since'
@@ -11,12 +15,23 @@ interface Settings { hooks?: Record<string, Matcher[]> & { Stop?: Matcher[] } }
 
 export type Outcome = 'installed' | 'already-installed' | 'removed' | 'not-installed'
 
+export interface InstallResult {
+  outcome: Outcome
+  path: string
+  command: string
+  /** Whether the command we just wrote actually runs. Saying "Done" over a
+   *  hook that emits an npm 404 after every session is worse than saying
+   *  nothing — it spends the one moment the reader was paying attention. */
+  verified?: boolean
+  problem?: string
+}
+
 /**
  * The smallest artifact in the plan, and the one that decides whether this is
  * essential or forgettable. A tool you must remember to run, answering a
  * question you did not know you had, gets run three times and abandoned.
  */
-export async function installHook(root: string, remove = false, plain = false): Promise<{ outcome: Outcome; path: string }> {
+export async function installHook(root: string, remove = false, plain = false): Promise<InstallResult> {
   const path = join(root, ...SETTINGS)
   const settings = await readSettings(path)
   // In our own repo, point at the local build. Otherwise the hook would shell
@@ -29,17 +44,32 @@ export async function installHook(root: string, remove = false, plain = false): 
   const has = stop.some((m) => m.hooks?.some((h) => h.command === command))
 
   if (remove) {
-    if (!has) return { outcome: 'not-installed', path }
+    if (!has) return { outcome: 'not-installed', path, command }
     const pruned = stop
       .map((m) => ({ ...m, hooks: (m.hooks ?? []).filter((h) => h.command !== command) }))
       .filter((m) => (m.hooks ?? []).length > 0)
     await writeSettings(path, withStop(settings, pruned))
-    return { outcome: 'removed', path }
+    return { outcome: 'removed', path, command }
   }
 
-  if (has) return { outcome: 'already-installed', path }
+  const check = await verify(root, command)
+  if (has) return { outcome: 'already-installed', path, command, ...check }
   await writeSettings(path, withStop(settings, [...stop, { matcher: '', hooks: [{ type: 'command', command }] }]))
-  return { outcome: 'installed', path }
+  return { outcome: 'installed', path, command, ...check }
+}
+
+/** Run the exact command we wrote, once, before claiming anything. */
+async function verify(root: string, command: string): Promise<{ verified: boolean; problem?: string }> {
+  const parts = command.split(' ')
+  const bin = parts[0]
+  if (bin === undefined) return { verified: false, problem: 'empty command' }
+  try {
+    const { stdout } = await exec(bin, [...parts.slice(1, -1), '--version'], { cwd: root, timeout: 60_000 })
+    return /\d+\.\d+\.\d+/.test(stdout) ? { verified: true } : { verified: false, problem: 'it ran but did not report a version' }
+  } catch (err) {
+    const detail = (err as { stderr?: string }).stderr ?? (err as Error).message
+    return { verified: false, problem: detail.split('\n').find((l) => l.trim() !== '') ?? 'it did not run' }
+  }
 }
 
 /** Preserves every other key, so installing never clobbers a user's settings. */

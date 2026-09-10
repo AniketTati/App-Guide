@@ -45,8 +45,8 @@ const PLAIN_KINDS: Record<Fact['kind'], string> = {
   route: 'URL',
   library: 'package',
   external: 'service',
-  write: 'writes',
-  read: 'reads',
+  write: 'data',
+  read: 'data',
   export: 'code',
   gap: 'unread',
 }
@@ -101,11 +101,14 @@ export const plain: Words = {
 
   // The hint is the point of the footer, so at a narrow terminal the count
   // goes rather than the instruction.
+  // Two lines, because the second one is the off switch. Without it the same
+  // list reprints after every session forever, which is what gets a tool
+  // uninstalled in week two — not being wrong, but not shutting up.
   footer: (hidden, numbered, cols) => {
     const total = `${hidden} change${hidden === 1 ? '' : 's'} in total`
-    if (!numbered) return total
-    const hint = 'Ask your agent: "explain #1" or "fix #1"'
-    return hint.length + total.length + 9 <= cols - 4 ? `${hint}   ·   ${total}` : hint
+    const hint = numbered ? 'Ask your agent: "explain #1" or "fix #1"' : ''
+    const first = hint === '' ? total : (hint.length + total.length + 9 <= cols - 4 ? `${hint}   ·   ${total}` : hint)
+    return `${first}\nDone looking? Ask your agent to run: appguide seen`
   },
 
   labels: { top: 'WORTH A LOOK', also: 'ALSO CHANGED', gaps: "WHAT I COULDN'T READ" },

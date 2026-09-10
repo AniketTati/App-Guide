@@ -67,10 +67,12 @@ function denominatorFor(change: Change, pop: Population): Denominator | null {
   }
 
   if (f.kind === 'external') {
-    // Same reasoning: "1 of 1 external calls" is a vacuous ratio.
-    if (pop.externals.length < 2) return null
-    const sameHost = pop.externals.filter((e) => e.kind === 'external' && e.host === f.host).length
-    return { property: 'new outbound call', matching: sameHost, total: pop.externals.length, noun: 'external calls' }
+    // "1 of 1" is not vacuous here: it means this is the only server the app
+    // talks to, which is a real and checkable statement.
+    // Count distinct hosts, not call sites: "1 of 1 external calls" is true
+    // and reads like a glitch, where "1 of 4 services" is informative.
+    const hosts = new Set(pop.externals.flatMap((e) => (e.kind === 'external' ? [e.host] : [])))
+    return { property: 'new outbound call', matching: 1, total: Math.max(1, hosts.size), noun: 'external calls' }
   }
 
   return null

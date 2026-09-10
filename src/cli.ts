@@ -23,6 +23,7 @@ const HELP = `appguide ${version}
 Usage
   appguide                 report what changed, then advance nothing
   appguide since           same, explicitly
+  appguide seen            you've read it — start the next report from here
   appguide ask 1           a question you can paste to your agent about finding 1
   appguide init-hook       run automatically when your agent finishes
   appguide init-hook --plain       ...in everyday language, not jargon
@@ -82,12 +83,20 @@ export async function main(argv: string[]): Promise<number> {
         return 0
       }
       if (values.markdown) {
-        process.stdout.write(renderMarkdown(report))
+        process.stdout.write(renderMarkdown(report, voice))
         return 0
       }
       if (values['no-color']) setColor(false)
       const shown = values.all ? { ...report, also: [...report.top, ...report.also], top: [] } : report
       process.stdout.write(renderTerminal(shown, { hiddenCount: report.totalChanges, voice }))
+      return 0
+    }
+    case 'seen': {
+      await run({ root: process.cwd(), mark: true })
+      const plainVoice = values.plain || (await readConfig(process.cwd())).plain
+      process.stdout.write(plainVoice
+        ? "Noted. The next report will only show what changes from here.\n"
+        : 'mark advanced\n')
       return 0
     }
     case 'ask': {
@@ -96,8 +105,9 @@ export async function main(argv: string[]): Promise<number> {
         process.stderr.write('which one? e.g. appguide ask 1\n')
         return 2
       }
-      const report = await run({ root: process.cwd(), mark: false })
-      const prompt = ask(report, which)
+      const askVoice = values.plain || (await readConfig(process.cwd())).plain ? 'plain' as const : 'technical' as const
+      const report = await run({ root: process.cwd(), mark: false, voice: askVoice })
+      const prompt = ask(report, which, askVoice)
       if (prompt === null) {
         const n = report.top.length + report.also.length
         process.stderr.write(n === 0 ? 'nothing to ask about — nothing changed\n' : `there are only ${n} findings\n`)
@@ -107,16 +117,23 @@ export async function main(argv: string[]): Promise<number> {
       return 0
     }
     case 'init-hook': {
-      const { outcome, path } = await installHook(process.cwd(), values.uninstall, values.plain)
-      const said: Record<string, string> = {
-        installed: values.plain
-          ? `Done. From now on, when your agent finishes working, you'll see a short\nsummary of what it changed. Most of the time it will say nothing happened.\n  ${path}`
-          : `installed — appguide will run when your agent finishes\n  ${path}`,
-        'already-installed': `already installed\n  ${path}`,
-        removed: `removed\n  ${path}`,
-        'not-installed': `nothing to remove — no appguide hook in\n  ${path}`,
+      const r = await installHook(process.cwd(), values.uninstall, values.plain)
+      if (r.outcome === 'removed' || r.outcome === 'not-installed') {
+        process.stdout.write(`${r.outcome === 'removed' ? 'removed' : 'nothing to remove'}\n  ${r.path}\n`)
+        return 0
       }
-      process.stdout.write(`${said[outcome] ?? outcome}\n`)
+      if (r.verified !== true) {
+        // Never claim an install we could not run. This is the moment the
+        // reader is paying attention, and spending it on a false "Done" is
+        // how they end up with an error wall after every session instead.
+        process.stderr.write(values.plain
+          ? `I set it up, but I couldn't get it to run, so it won't work yet.\n\n  tried:  ${r.command}\n  got:    ${r.problem ?? 'no output'}\n\nappguide isn't published yet — for now, run it from a copy of the source.\nUndo with: appguide init-hook --uninstall\n`
+          : `wrote the hook but could not run it — it will fail on every session\n\n  command: ${r.command}\n  error:   ${r.problem ?? 'no output'}\n\nundo with: appguide init-hook --uninstall\n`)
+        return 1
+      }
+      process.stdout.write(values.plain
+        ? `Done, and I checked that it works. From now on, when your agent finishes,\nyou'll see a short summary of what it changed. Most of the time it will say\nnothing happened — that's the point.\n  ${r.path}\n`
+        : `installed and verified — runs when your agent finishes\n  ${r.path}\n`)
       return 0
     }
     default:

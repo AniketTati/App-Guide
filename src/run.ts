@@ -43,13 +43,13 @@ export async function run({ root, mark, voice = 'technical' }: RunOptions): Prom
   // An unreadable or version-mismatched mark is not the same as no changes.
   // Saying "nothing new to the shape" here would be the tool's worst failure:
   // a confident all-clear it has no basis for.
-  const marker: Fact[] = previous.ok
+  // A first run is announced in the headline; repeating it as a "gap" listed
+  // our own file among the reader's problems. Only a *broken* mark is a gap.
+  const marker: Fact[] = previous.ok || previous.reason === 'missing'
     ? []
     : [{
-        kind: 'gap',
-        reason: previous.reason === 'missing' ? 'unresolved-import' : 'parse-error',
-        subject: '.appguide/mark',
-        detail: previous.reason === 'missing' ? 'first run — nothing to compare against yet' : previous.detail,
+        kind: 'gap', reason: 'parse-error', subject: 'my own notes',
+        detail: `I could not read my notes from last time (${previous.detail}), so I have nothing to compare against`,
         where: { file: '.appguide/mark', line: 1 },
       }]
 

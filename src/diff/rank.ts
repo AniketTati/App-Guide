@@ -61,15 +61,28 @@ function compareRarity(a: Change, b: Change): number {
  * If we cannot produce a denominator, we cannot claim the thing matters.
  */
 export function split(ranked: readonly Change[]): { top: Change[]; also: Change[] } {
+  const eligible = ranked.filter((c) => c.denominator !== undefined && c.type === 'added')
+  const rest = ranked.filter((c) => !eligible.includes(c))
+
+  // One of each kind before a second of any kind. Three new health-check
+  // endpoints are three instances of one story; a new outbound call and a new
+  // module writing to users are two different stories, and burying them under
+  // near-duplicates is how a short list stops being worth reading.
   const top: Change[] = []
-  const also: Change[] = []
-  for (const change of ranked) {
-    if (change.denominator !== undefined && change.type === 'added' && top.length < TOP_BLOCK_LIMIT) {
-      top.push(change)
-    } else {
-      also.push(change)
-    }
+  const seen = new Set<string>()
+  for (const change of eligible) {
+    if (top.length >= TOP_BLOCK_LIMIT) break
+    if (seen.has(change.fact.kind)) continue
+    seen.add(change.fact.kind)
+    top.push(change)
   }
+  for (const change of eligible) {
+    if (top.length >= TOP_BLOCK_LIMIT) break
+    if (!top.includes(change)) top.push(change)
+  }
+
+  const also = ranked.filter((c) => !top.includes(c))
+  void rest
   return { top, also }
 }
 

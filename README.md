@@ -35,6 +35,47 @@ It installs a hook once and prints itself when your agent stops. Most sessions
 are boring — that is the point. The value is that the one time it isn't, you
 notice.
 
+## If you don't write code
+
+You don't need a terminal. Paste this into your agent's chat and ask it to run it:
+
+```
+npx appguide init-hook --plain
+```
+
+From then on, whenever your agent finishes working, a short summary appears
+telling you what it changed. Most of the time it will say nothing happened —
+that's the point. The value is that the one time it isn't nothing, you notice.
+
+It looks like this:
+
+```
+ appguide · 3 files
+
+ Your agent added 1 new URL with nothing checking who can use it, let 2 new
+ parts of your app change your users data, and started talking to
+ api.stripe.com.
+
+ WORTH A LOOK
+  #1  URL      POST /api/admin/reset-usage   nothing checks it · 1 of 10 URLs
+               src/api.ts:11                 every other URL is checked
+               Anyone on the internet can reach this one.
+
+ WHAT I COULDN'T READ
+   I can't read hono yet, so anything it creates is missing from this list.
+   → anything your agent changed in it is missing from the list above
+
+   Ask your agent: "explain #1" or "fix #1"   ·   4 changes in total
+```
+
+You don't have to act on any of it yourself. Say **"explain #1"** or
+**"fix #1"** to your agent — it can already see the summary.
+
+**It will never tell you something is dangerous.** It says *"nothing checks
+it — 1 of 10 URLs"*, which is a count you can check, not an opinion you have to
+trust. And it always tells you what it couldn't read, so a short list never
+quietly means a clean bill of health.
+
 ## Why not just ask the agent
 
 Two reasons, and neither closes as models improve:

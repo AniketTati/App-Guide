@@ -1,6 +1,7 @@
 import type { Fact } from '../model/facts.js'
 import type { Change, Report } from '../model/report.js'
 import { subject } from '../diff/rank.js'
+import { words, type Voice } from './words.js'
 import { bold, dim, pad, truncate, width } from './ansi.js'
 
 const KIND_COL = 9 // 'external' is 8 — a column of exactly the widest kind leaves no gap
@@ -15,34 +16,45 @@ export interface TerminalOptions {
   columns?: number
   /** Shown in the footer hint; the count behind `--all`. */
   hiddenCount?: number
+  /** 'plain' translates every term for a reader who does not write code. It
+   *  never adds a judgement the technical voice would not make. */
+  voice?: Voice
 }
 
 export function renderTerminal(report: Report, opts: TerminalOptions = {}): string {
   const cols = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, opts.columns ?? process.stdout.columns ?? 80))
   const nothing = report.top.length === 0 && report.also.length === 0
+  const voice = opts.voice ?? 'technical'
 
-  return nothing ? allClear(report, cols) : full(report, cols, opts)
+  return nothing ? allClear(report, cols, voice) : full(report, cols, { ...opts, voice })
 }
 
 /** The state the tool is in most of the time. Being visibly, reliably boring is
  *  what turns this from a fear product into one people keep. */
-function allClear(report: Report, cols: number): string {
+function allClear(report: Report, cols: number, voice: Voice): string {
+  const w = words(voice)
   // "nothing new to the shape" is an exhaustive claim. When a framework we
   // cannot read is present, the claim is false and must be qualified — this is
   // the exact silence the tool exists to prevent, and the all-clear is where it
   // would otherwise hide.
   const headline = report.firstRun === true
-    ? 'first run — mark established, nothing to compare yet'
-    : report.gaps.length > 0
-      ? 'nothing new in what I can read'
-      : 'nothing new to the shape'
+    ? (voice === 'plain'
+        ? "first look — I've made a note of what's here. Run again after your next session."
+        : 'first run — mark established, nothing to compare yet')
+    : w.headline(report)
   const lines = [` ${bold('appguide')} ${dim('·')} ${session(report)} ${dim('·')} ${headline}`]
-  const cover = coverageLines(report.gaps, cols)
-  lines.push(...(cover.length > 0 ? cover : [`   ${dim('everything it touched was readable')}`]))
+  const cover = coverageLines(report.gaps, cols, voice)
+  lines.push(...(cover.length > 0
+    ? cover
+    : [`   ${dim(voice === 'plain' ? 'I could read everything it touched' : 'everything it touched was readable')}`]))
   return frame(lines, cols)
 }
 
 function full(report: Report, cols: number, opts: TerminalOptions): string {
+  const voice = opts.voice ?? 'technical'
+  const w = words(voice)
+  // Numbered so a reader can say "explain #1" instead of retyping a path.
+  let n = 0
   const head: string[] = [
     ` ${bold('appguide')} ${dim('·')} ${session(report)}`,
     '',
@@ -51,18 +63,20 @@ function full(report: Report, cols: number, opts: TerminalOptions): string {
 
   const top: string[] = []
   if (report.top.length > 0) {
-    top.push('', ` ${dim('NEW TO THIS CODEBASE')}`)
-    for (const change of report.top) top.push(...entry(change, cols, true))
+    top.push('', ` ${dim(w.labels.top)}`)
+    for (const change of report.top) top.push(...entry(change, cols, true, voice, ++n))
   }
 
   const coverage: string[] = []
   if (report.gaps.length > 0) {
-    coverage.push('', ` ${dim('NOT COVERED')}`, ...coverageLines(report.gaps, cols),
-      `   ${dim(`→ a change ${report.gaps.length === 1 ? 'in it' : 'in any of these'} would not appear above`)}`)
+    coverage.push('', ` ${dim(w.labels.gaps)}`, ...coverageLines(report.gaps, cols, voice),
+      `   ${dim(truncate(voice === 'plain'
+        ? `→ anything your agent changed in ${report.gaps.length === 1 ? 'it' : 'these'} is missing from the list above`
+        : `→ a change ${report.gaps.length === 1 ? 'in it' : 'in any of these'} would not appear above`, cols - 4))}`)
   }
 
   const hidden = opts.hiddenCount ?? report.totalChanges
-  const footer = ['', `   ${dim(`appguide since --all (${hidden}) · --mark`)}`]
+  const footer = ['', `   ${dim(truncate(w.footer(hidden, report.top.length > 0, cols), cols - 4))}`]
 
   // Everything above is fixed cost. `also` is the only section allowed to give
   // ground — the coverage block never is, because a receipt that drops its own
@@ -81,8 +95,8 @@ function full(report: Report, cols: number, opts: TerminalOptions): string {
     // A header whose only content is "+N more" says nothing the footer's
     // `--all (n)` does not already say.
     if (shown.length === 0) return frame([...head, ...top, ...coverage, ...footer], cols)
-    also.push('', ` ${dim('ALSO CHANGED')}`)
-    for (const change of shown) also.push(...entry(change, cols, false))
+    also.push('', ` ${dim(w.labels.also)}`)
+    for (const change of shown) also.push(...entry(change, cols, false, voice, ++n))
     const rest = report.also.length - shown.length
     if (rest > 0) also.push(`   ${dim(`+${rest} more`)}`)
   }
@@ -131,68 +145,88 @@ function prose(summary: string, cols: number): string[] {
  * (dim). Every exception gets a second indented line with file:line — the
  * show-your-work line that turns "a tool told me" into "I can check that".
  */
-function entry(change: Change, cols: number, showEvidence: boolean): string[] {
+function entry(change: Change, cols: number, showEvidence: boolean, voice: Voice = 'technical', index = 0): string[] {
+  const w = words(voice)
   const gutter = 3 + KIND_COL
   const rest = cols - gutter - 1
   const subjWidth = Math.max(18, Math.floor(rest * 0.45))
   const rightWidth = rest - subjWidth
 
   const marker = change.type === 'removed' ? '-' : change.type === 'changed' ? '~' : ' '
-  const kind = pad(change.fact.kind, KIND_COL)
+  const kind = pad(truncate(w.kind(change.fact), KIND_COL - 1), KIND_COL)
   const subj = pad(truncate(subject(change.fact), subjWidth), subjWidth)
 
   // Never truncate the number: the number is the claim. If the property and
   // the ratio do not both fit, the property moves to the evidence line rather
   // than the ratio losing digits.
-  const { full, ratio, property } = corroboration(change)
+  const { full, ratio, property } = corroboration(change, voice)
   const fits = width(full) <= rightWidth
   const right = fits ? full : truncate(ratio, rightWidth)
 
-  const lines = [`  ${dim(marker)}${dim(kind)}${subj} ${dim(right)}`.trimEnd()]
+  const label = index > 0 && voice === 'plain' ? dim(`#${index}`) : dim(marker)
+  const lines = [`  ${pad(label, voice === 'plain' && index > 0 ? 4 : 1)}${dim(kind)}${subj} ${dim(right)}`.trimEnd()]
   if (showEvidence) {
     const where = `${change.fact.where.file}:${change.fact.where.line}`
-    const note = fits ? secondary(change) : property
+    const note = fits ? secondary(change, voice) : property
     lines.push(
-      `${' '.repeat(gutter)}${dim(pad(truncate(where, subjWidth), subjWidth))} ${dim(truncate(note, rightWidth))}`.trimEnd(),
+      `${' '.repeat(gutter + (voice === 'plain' && index > 0 ? 3 : 0))}${dim(pad(truncate(where, subjWidth), subjWidth))} ${dim(truncate(note, rightWidth))}`.trimEnd(),
     )
+    const why = w.why(change)
+    if (why !== '') lines.push(`${' '.repeat(gutter + (voice === 'plain' ? 3 : 0))}${dim(truncate(why, cols - gutter - 5))}`)
   }
   return lines
 }
 
 /** Never an adjective. A ratio the reader can verify and the tool cannot get
  *  wrong. */
-function corroboration(change: Change): { full: string; ratio: string; property: string } {
+function corroboration(change: Change, voice: Voice = 'technical'): { full: string; ratio: string; property: string } {
+  const w = words(voice)
   const d = change.denominator
   if (d !== undefined) {
+    const prop = voice === 'plain' ? plainProperty(d.property) : d.property
+    const noun = voice === 'plain' ? plainNoun(d.noun) : d.noun
+    const ratio = `${d.matching} of ${d.total} ${noun}`
     // The compact form still carries the property. A number stripped of what it
     // counts is exactly the ambiguity the denominator rule exists to remove.
     return {
-      full: `${d.property} · ${d.matching} of ${d.total} ${d.noun}`,
-      ratio: `${d.matching}/${d.total} ${d.property}`,
-      property: `${d.matching} of ${d.total} ${d.noun}`,
+      full: `${prop} · ${ratio}`,
+      ratio: `${d.matching}/${d.total} ${prop}`,
+      property: ratio,
     }
   }
-  const f = change.fact
-  let plain = ''
-  if (f.kind === 'route') plain = f.middleware === 'unresolved' ? 'chain unresolved' : (f.middleware.join(', ') || 'no middleware')
-  else if (f.kind === 'library') plain = `${f.version}${f.direct ? '' : ' (transitive)'}`
-  else if (f.kind === 'external') plain = f.via
-  return { full: plain, ratio: plain, property: plain }
+  const text = w.detail(change)
+  return { full: text, ratio: text, property: text }
 }
 
 /**
  * Phrased per kind. A generic "N others do not" reads as nonsense once the
  * property is something like "first write from billing/".
  */
-function secondary(change: Change): string {
+const plainNoun = (noun: string): string => noun
+  .replace(/\broutes\b/, 'URLs')
+  .replace(/^modules write (.+)$/, 'places change $1')
+  .replace(/\bdependencies\b/, 'packages')
+  .replace(/\bexternal calls\b/, 'outside services')
+const plainProperty = (p: string): string => p
+  .replace(/^no middleware$/, 'nothing checks it')
+  .replace(/^new dependency$/, 'new package')
+  .replace(/^new outbound call$/, 'new outside service')
+  .replace(/^first write from /, 'first change from ')
+
+function secondary(change: Change, voice: Voice = 'technical'): string {
   const d = change.denominator
   if (d === undefined) return change.type === 'changed' ? 'changed since you last looked' : ''
   const others = d.total - d.matching
   if (others <= 0) return ''
+  const plain = voice === 'plain'
   switch (change.fact.kind) {
-    case 'route': return `every other route has one`
-    case 'write': return `${others} other module${others === 1 ? '' : 's'} write it`
-    case 'library': return `${others} other dependencies were already here`
+    case 'route': return plain ? 'every other URL is checked' : 'every other route has one'
+    case 'write': return plain
+      ? `${others} other place${others === 1 ? '' : 's'} already could`
+      : `${others} other module${others === 1 ? '' : 's'} write it`
+    case 'library': return plain
+      ? `${others} other packages were already here`
+      : `${others} other dependencies were already here`
     default: return `${others} others do not`
   }
 }
@@ -208,10 +242,11 @@ function secondary(change: Change): string {
  */
 const COVERAGE_MAX = 3
 
-export function coverageLines(gaps: readonly Fact[], cols: number): string[] {
+export function coverageLines(gaps: readonly Fact[], cols: number, voice: Voice = 'technical'): string[] {
   if (gaps.length === 0) return []
+  const w = words(voice)
   const shown = gaps.slice(0, COVERAGE_MAX)
-  const lines = shown.map((g) => `   ${dim(truncate(describeGap(g), cols - 4))}`)
+  const lines = shown.map((g) => `   ${dim(truncate(voice === 'plain' ? w.gap(g) : describeGap(g), cols - 4))}`)
   const rest = gaps.length - shown.length
   if (rest > 0) lines.push(`   ${dim(`and ${rest} more I could not read`)}`)
   return lines

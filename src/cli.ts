@@ -7,6 +7,8 @@ import { renderTerminal } from './render/terminal.js'
 import { setColor } from './render/ansi.js'
 import { installHook } from './hook/install.js'
 import { renderMarkdown } from './render/markdown.js'
+import { ask } from './render/ask.js'
+import { readConfig } from './config.js'
 
 /** Bumped whenever the --json shape changes in a way a consumer would notice. */
 export const JSON_SCHEMA_VERSION = 1
@@ -21,7 +23,9 @@ const HELP = `appguide ${version}
 Usage
   appguide                 report what changed, then advance nothing
   appguide since           same, explicitly
+  appguide ask 1           a question you can paste to your agent about finding 1
   appguide init-hook       run automatically when your agent finishes
+  appguide init-hook --plain       ...in everyday language, not jargon
   appguide init-hook --uninstall
 
 Options
@@ -29,6 +33,7 @@ Options
   --mark         record this moment as "the last time you looked"
   --json         emit the raw delta
   --markdown     for a PR comment or Slack
+  --plain        everyday language instead of jargon
   --no-color     plain text
   --help, -h     this
   --version, -v  version
@@ -47,6 +52,7 @@ export async function main(argv: string[]): Promise<number> {
         'no-color': { type: 'boolean', default: false },
         uninstall: { type: 'boolean', default: false },
         markdown: { type: 'boolean', default: false },
+        plain: { type: 'boolean', default: false },
         help: { type: 'boolean', short: 'h', default: false },
         version: { type: 'boolean', short: 'v', default: false },
       },
@@ -69,7 +75,8 @@ export async function main(argv: string[]): Promise<number> {
   const command = positionals[0] ?? 'since'
   switch (command) {
     case 'since': {
-      const report = await run({ root: process.cwd(), mark: values.mark })
+      const voice = values.plain || (await readConfig(process.cwd())).plain ? 'plain' as const : 'technical' as const
+      const report = await run({ root: process.cwd(), mark: values.mark, voice })
       if (values.json) {
         process.stdout.write(`${JSON.stringify({ schema: JSON_SCHEMA_VERSION, ...report }, null, 2)}\n`)
         return 0
@@ -80,13 +87,31 @@ export async function main(argv: string[]): Promise<number> {
       }
       if (values['no-color']) setColor(false)
       const shown = values.all ? { ...report, also: [...report.top, ...report.also], top: [] } : report
-      process.stdout.write(renderTerminal(shown, { hiddenCount: report.totalChanges }))
+      process.stdout.write(renderTerminal(shown, { hiddenCount: report.totalChanges, voice }))
+      return 0
+    }
+    case 'ask': {
+      const which = Number(positionals[1] ?? '1')
+      if (!Number.isInteger(which) || which < 1) {
+        process.stderr.write('which one? e.g. appguide ask 1\n')
+        return 2
+      }
+      const report = await run({ root: process.cwd(), mark: false })
+      const prompt = ask(report, which)
+      if (prompt === null) {
+        const n = report.top.length + report.also.length
+        process.stderr.write(n === 0 ? 'nothing to ask about — nothing changed\n' : `there are only ${n} findings\n`)
+        return 1
+      }
+      process.stdout.write(prompt)
       return 0
     }
     case 'init-hook': {
-      const { outcome, path } = await installHook(process.cwd(), values.uninstall)
+      const { outcome, path } = await installHook(process.cwd(), values.uninstall, values.plain)
       const said: Record<string, string> = {
-        installed: `installed — appguide will run when your agent finishes\n  ${path}`,
+        installed: values.plain
+          ? `Done. From now on, when your agent finishes working, you'll see a short\nsummary of what it changed. Most of the time it will say nothing happened.\n  ${path}`
+          : `installed — appguide will run when your agent finishes\n  ${path}`,
         'already-installed': `already installed\n  ${path}`,
         removed: `removed\n  ${path}`,
         'not-installed': `nothing to remove — no appguide hook in\n  ${path}`,

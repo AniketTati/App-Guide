@@ -90,7 +90,8 @@ export function subject(fact: Fact): string {
  * answers "do I need to read this?" in about three seconds. Built from counts,
  * so it can no more be wrong than the table below it.
  */
-export function summarise(changes: readonly Change[], firstRun = false): string {
+export function summarise(changes: readonly Change[], firstRun = false, voice: 'technical' | 'plain' = 'technical'): string {
+  if (voice === 'plain') return summarisePlain(changes, firstRun)
   // A first run has nothing to compare against. Saying "nothing new to the
   // shape" would be a positive claim with no evidence, and markdown and JSON
   // consumers keying on this string would be told a falsehood.
@@ -142,6 +143,48 @@ export function summarise(changes: readonly Change[], firstRun = false): string 
   return `Your agent ${join(clauses)}.`
 }
 
+/** Same facts, the reader's words. Still counts, still no adjectives. */
+function summarisePlain(changes: readonly Change[], firstRun: boolean): string {
+  if (firstRun) return "This is my first look, so there's nothing to compare against yet."
+  if (changes.length === 0) return 'Your agent changed nothing that affects how your app is put together.'
+
+  const added = changes.filter((c) => c.type === 'added')
+  const clauses: string[] = []
+
+  const routes = added.filter((c) => c.fact.kind === 'route')
+  const open = routes.filter((c) => c.fact.kind === 'route' && c.fact.middleware !== 'unresolved' && c.fact.middleware.length === 0)
+  if (routes.length > 0) {
+    clauses.push(open.length > 0
+      ? `added ${count(routes.length, 'new URL')}, ${open.length === routes.length ? '' : `${open.length} of which `}with nothing checking who can use ${open.length === 1 ? 'it' : 'them'}`.replace(', with', ' with')
+      : `added ${count(routes.length, 'new URL')}`)
+  }
+
+  const writes = added.filter((c) => c.fact.kind === 'write')
+  if (writes.length > 0) {
+    const tables = [...new Set(writes.map((c) => (c.fact.kind === 'write' ? c.fact.table : '')))]
+    clauses.push(`let ${count(writes.length, 'new part')} of your app change your ${tables.slice(0, 2).join(' and ')} data`)
+  }
+
+  const externals = added.filter((c) => c.fact.kind === 'external')
+  if (externals.length === 1 && externals[0]!.fact.kind === 'external') {
+    clauses.push(`started talking to ${externals[0]!.fact.host}`)
+  } else if (externals.length > 1) {
+    clauses.push(`started talking to ${count(externals.length, 'outside service')}`)
+  }
+
+  const libs = added.filter((c) => c.fact.kind === 'library')
+  if (libs.length === 1 && libs[0]!.fact.kind === 'library') clauses.push(`installed ${libs[0]!.fact.name}`)
+  else if (libs.length > 1) clauses.push(`installed ${count(libs.length, 'package')}`)
+
+  if (clauses.length === 0) {
+    const removed = changes.filter((c) => c.type === 'removed').length
+    return removed > 0
+      ? `Your agent removed ${count(removed, 'thing')} and adjusted some code.`
+      : 'Your agent adjusted some code, but nothing about how your app is put together.'
+  }
+  return `Your agent ${join(clauses)}.`
+}
+
 function count(n: number, singular: string, plural?: string): string {
   return `${n} ${n === 1 ? singular : (plural ?? `${singular}s`)}`
 }
@@ -158,8 +201,9 @@ export function toReport(
   session: Report['session'],
   population: readonly Fact[] = [],
   firstRun = false,
+  voice: 'technical' | 'plain' = 'technical',
 ): Report {
   const ranked = rank(withDenominators(changes, population))
   const { top, also } = split(ranked)
-  return { summary: summarise(ranked, firstRun), top, also, gaps, totalChanges: changes.length, session, firstRun }
+  return { summary: summarise(ranked, firstRun, voice), top, also, gaps, totalChanges: changes.length, session, firstRun }
 }

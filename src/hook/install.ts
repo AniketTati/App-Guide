@@ -16,13 +16,14 @@ export type Outcome = 'installed' | 'already-installed' | 'removed' | 'not-insta
  * essential or forgettable. A tool you must remember to run, answering a
  * question you did not know you had, gets run three times and abandoned.
  */
-export async function installHook(root: string, remove = false): Promise<{ outcome: Outcome; path: string }> {
+export async function installHook(root: string, remove = false, plain = false): Promise<{ outcome: Outcome; path: string }> {
   const path = join(root, ...SETTINGS)
   const settings = await readSettings(path)
   // In our own repo, point at the local build. Otherwise the hook would shell
   // out to npm for a package that is right here, and dogfooding is the gate
   // this whole stage exists to make measurable.
-  const command = (await isSelf(root)) ? LOCAL : NPX
+  // The voice is chosen once, at install, so nobody has to remember a flag.
+  const command = `${(await isSelf(root)) ? LOCAL : NPX}${plain ? ' --plain' : ''}`
 
   const stop = settings.hooks?.Stop ?? []
   const has = stop.some((m) => m.hooks?.some((h) => h.command === command))

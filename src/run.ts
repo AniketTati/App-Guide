@@ -17,9 +17,10 @@ const { version } = require('../package.json') as { version: string }
 export interface RunOptions {
   root: string
   mark: boolean
+  voice?: 'technical' | 'plain'
 }
 
-export async function run({ root, mark }: RunOptions): Promise<Report> {
+export async function run({ root, mark, voice = 'technical' }: RunOptions): Promise<Report> {
   const scan = await scanLibraries(root)
   const { parsed, gaps: parseGaps } = parseAll(scan.files)
   // Imported counts as present. In a workspace the root package.json declares
@@ -52,7 +53,7 @@ export async function run({ root, mark }: RunOptions): Promise<Report> {
         where: { file: '.appguide/mark', line: 1 },
       }]
 
-  const report = toReport(changes, [...gaps, ...marker], { files: scan.files.length }, facts, !previous.ok)
+  const report = toReport(changes, [...gaps, ...marker], { files: scan.files.length }, facts, !previous.ok, voice)
 
   // First run establishes the mark and reports nothing: existing state is
   // frozen, so `since` only ever speaks about what is new. Without this the

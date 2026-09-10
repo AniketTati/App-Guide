@@ -48,7 +48,7 @@ export const express: RouteDetector = {
               })
               if (!mounted) {
                 facts.push({
-                  kind: 'gap', reason: 'computed-route-path', subject: `${file.path}:${line}`,
+                  kind: 'gap', reason: 'unresolved-route-prefix', subject: `${file.path}:${line}`,
                   detail: 'router is mounted elsewhere — the real path has a prefix I cannot see',
                   where: { file: file.path, line },
                 })

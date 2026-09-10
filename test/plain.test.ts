@@ -202,3 +202,24 @@ describe('install honesty', () => {
     await installHook(process.cwd(), true, false)
   })
 })
+
+describe('the answer is never clipped', () => {
+  it('shows a long URL in full at every width', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'plain-w-'))
+    await mkdir(join(dir, 'src'), { recursive: true })
+    const guarded = Array.from({ length: 7 }, (_, i) => `app.get('/g${i}', requireAuth, h)`).join('\n')
+    await writeFile(join(dir, 'package.json'), '{"dependencies":{"express":"^4.0.0"}}')
+    await writeFile(join(dir, 'src/api.ts'), `const app = express()\n${guarded}`)
+    await run({ root: dir, mark: true })
+    const long = '/api/internal/admin/reset-all-usage-counters'
+    await writeFile(join(dir, 'src/api.ts'), `const app = express()\n${guarded}\napp.delete('${long}', h)\n`)
+
+    for (const cols of [60, 62, 78, 100]) {
+      const out = renderTerminal(await run({ root: dir, mark: false, voice: 'plain' }), { columns: cols, voice: 'plain' })
+      // Which URL is unprotected is the entire answer. An answer ending in an
+      // ellipsis is not one.
+      const flat = out.split('\n').map((l) => l.trim()).join('')
+      expect(flat, `${cols} cols`).toContain(long)
+    }
+  })
+})

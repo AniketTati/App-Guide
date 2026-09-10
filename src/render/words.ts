@@ -88,7 +88,8 @@ export const plain: Words = {
     switch (g.reason) {
       case 'unsupported-framework': return `I can't read ${g.subject} yet, so anything it creates is missing from this list.`
       case 'parse-error': return `I couldn't read ${g.subject}, so I don't know what's in it.`
-      case 'computed-route-path': return `One web address in ${g.subject} is put together while the app runs, so I can't tell you what it is.`
+      case 'computed-route-path': return `A web address in ${g.subject} is put together while the app runs, so I can't tell you what it is.`
+      case 'unresolved-route-prefix': return `The web address in ${g.subject} has a prefix added somewhere else, so the real one is longer than what I show.`
       case 'dynamic-dispatch': return `Some code in ${g.subject} decides what to run while the app runs, so I can't follow it.`
       case 'raw-sql': return `There's hand-written database code in ${g.subject} that I don't read.`
       case 'unresolved-import': return `${g.subject} is used but isn't in your package list.`

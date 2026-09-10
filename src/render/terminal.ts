@@ -11,6 +11,7 @@ const MAX_WIDTH = 100
  *  triggers a reaction before the eye reads a word — so length is the severity
  *  channel, and it only works if it is bounded. */
 const MAX_LINES = 22
+const FRAME_LINES = 3
 
 export interface TerminalOptions {
   columns?: number
@@ -64,18 +65,35 @@ function full(report: Report, cols: number, opts: TerminalOptions): string {
     ...prose(report.summary, cols),
   ]
 
+  // A wrapped subject makes an entry taller, so at a narrow terminal three
+  // findings may not fit. Drop the last rather than overflow — the budget is
+  // what makes length a severity signal, and an entry that spills is worse
+  // than one deferred to `--all`.
   const top: string[] = []
+  let topShown = 0
   if (report.top.length > 0) {
-    top.push('', ` ${dim(w.labels.top)}`)
-    for (const change of report.top) top.push(...entry(change, cols, true, voice, ++n))
+    const reserve = 4 /* header + blank + label */ + (report.gaps.length > 0 ? 4 : 0) + 3 /* footer */ + FRAME_LINES
+    let used = 0
+    const body: string[] = []
+    for (const change of report.top) {
+      const rendered = entry(change, cols, true, voice, n + 1)
+      if (used + rendered.length + reserve + prose(report.summary, cols).length > MAX_LINES + FRAME_LINES) break
+      body.push(...rendered)
+      used += rendered.length
+      n += 1
+      topShown += 1
+    }
+    if (body.length > 0) top.push('', ` ${dim(w.labels.top)}`, ...body)
   }
+  const deferred = report.top.length - topShown
 
   const coverage: string[] = []
   if (report.gaps.length > 0) {
     coverage.push('', ` ${dim(w.labels.gaps)}`, ...coverageLines(report.gaps, cols, voice),
-      `   ${dim(truncate(voice === 'plain'
+      ...words_(voice === 'plain'
         ? `→ anything your agent changed in ${report.gaps.length === 1 ? 'it' : 'these'} is missing from the list above`
-        : `→ a change ${report.gaps.length === 1 ? 'in it' : 'in any of these'} would not appear above`, cols - 4))}`)
+        : `→ a change ${report.gaps.length === 1 ? 'in it' : 'in any of these'} would not appear above`, cols - 4)
+        .map((l) => `   ${dim(l)}`))
   }
 
   const hidden = opts.hiddenCount ?? report.totalChanges
@@ -84,10 +102,9 @@ function full(report: Report, cols: number, opts: TerminalOptions): string {
   // Everything above is fixed cost. `also` is the only section allowed to give
   // ground — the coverage block never is, because a receipt that drops its own
   // blind spots to save room is the failure this tool exists to prevent.
-  const FRAME = 3
-  const fixed = head.length + top.length + coverage.length + footer.length + FRAME
+  const fixed = head.length + top.length + coverage.length + footer.length + FRAME_LINES
   const also: string[] = []
-  const available = MAX_LINES + FRAME - fixed
+  const available = MAX_LINES + FRAME_LINES - fixed
   // A section header with nothing under it is noise: the footer's `--all (n)`
   // already says there is more. Show the section only if at least one entry
   // fits beneath it.
@@ -100,11 +117,36 @@ function full(report: Report, cols: number, opts: TerminalOptions): string {
     if (shown.length === 0) return frame([...head, ...top, ...coverage, ...footer], cols)
     also.push('', ` ${dim(w.labels.also)}`)
     for (const change of shown) also.push(...entry(change, cols, false, voice, ++n))
-    const rest = report.also.length - shown.length
-    if (rest > 0) also.push(`   ${dim(`+${rest} more`)}`)
+    const rest = report.also.length - shown.length + deferred
+    if (rest > 0) also.push(`   ${dim(seeAll(rest, voice))}`)
+  } else if (report.also.length + deferred > 0) {
+    // No room for the section at all. Still say the rest exists — the summary
+    // sentence may have led with a kind that never made the list.
+    also.push('', `   ${dim(seeAll(report.also.length + deferred, voice))}`)
   }
 
-  return frame([...head, ...top, ...also, ...coverage, ...footer], cols)
+  // Estimating what will fit is fragile once entries can wrap, so the budget is
+  // enforced as a post-condition instead. Sections give ground in a fixed
+  // order, and coverage and the footer never do: a receipt that drops its own
+  // blind spots to save a line is the failure this tool exists to prevent.
+  const body = fit([head, top, also], coverage.length + footer.length)
+  return frame([...body, ...coverage, ...footer], cols)
+}
+
+/** Trims `also` first, then `top`, never the sections passed as fixed cost. */
+function fit(sections: readonly string[][], fixedCost: number): string[] {
+  const [head = [], top = [], also = []] = sections
+  const budget = MAX_LINES - fixedCost
+  const trimmable = [also, top]
+  const kept = [[...also], [...top]]
+
+  const total = (): number => head.length + kept[1]!.length + kept[0]!.length
+  for (let i = 0; i < trimmable.length && total() > budget; i++) {
+    // Keep at least the section label plus one line, or the header is orphaned.
+    while (total() > budget && kept[i]!.length > 0) kept[i]!.pop()
+  }
+  const [alsoKept = [], topKept = []] = kept
+  return [...head, ...(topKept.length > 2 ? topKept : []), ...(alsoKept.length > 2 ? alsoKept : [])]
 }
 
 function frame(lines: readonly string[], cols: number): string {
@@ -160,7 +202,12 @@ function entry(change: Change, cols: number, showEvidence: boolean, voice: Voice
 
   const marker = change.type === 'removed' ? '-' : change.type === 'changed' ? '~' : ' '
   const kind = pad(truncate(w.kind(change.fact), KIND_COL - 1), KIND_COL)
-  const subj = pad(truncate(subject(change.fact), subjWidth), subjWidth)
+  const full_subject = subject(change.fact)
+  // If the subject does not fit beside the number, it gets the whole line.
+  // Clipping it is unacceptable: which URL is unprotected is the entire answer,
+  // and an answer ending in an ellipsis is not one.
+  const roomy = width(full_subject) <= subjWidth
+  const subj = pad(truncate(full_subject, subjWidth), subjWidth)
 
   // Never truncate the number: the number is the claim. If the property and
   // the ratio do not both fit, the property moves to the evidence line rather
@@ -170,15 +217,22 @@ function entry(change: Change, cols: number, showEvidence: boolean, voice: Voice
   const right = fits ? full : truncate(ratio, rightWidth)
 
   const label = index > 0 && voice === 'plain' ? dim(`#${index}`) : dim(marker)
-  const lines = [`  ${pad(label, 1 + numberWidth)}${dim(kind)}${subj} ${dim(right)}`.trimEnd()]
+  const head = `  ${pad(label, 1 + numberWidth)}${dim(kind)}`
+  const wide = cols - gutter - 1
+  const where = `${change.fact.where.file}:${change.fact.where.line}`
+
+  const lines = roomy
+    ? [`${head}${subj} ${dim(right)}`.trimEnd()]
+    : [...wrap(full_subject, wide).map((l, i) => (i === 0 ? `${head}${l}` : `${' '.repeat(gutter)}${l}`)),
+       `${' '.repeat(gutter)}${dim(truncate(full, wide))}`]
+
   if (showEvidence) {
-    const where = `${change.fact.where.file}:${change.fact.where.line}`
-    const note = fits ? secondary(change, voice) : property
+    const note = roomy && fits ? secondary(change, voice) : ''
     lines.push(
-      `${' '.repeat(gutter)}${dim(pad(truncate(where, subjWidth), subjWidth))} ${dim(truncate(note, rightWidth))}`.trimEnd(),
+      `${' '.repeat(gutter)}${dim(pad(truncate(where, subjWidth), note === '' ? 0 : subjWidth))}${note === '' ? '' : ` ${dim(truncate(note, rightWidth))}`}`.trimEnd(),
     )
     const why = w.why(change)
-    if (why !== '') lines.push(`${' '.repeat(gutter)}${dim(truncate(why, cols - gutter - 1))}`)
+    if (why !== '') lines.push(`${' '.repeat(gutter)}${dim(truncate(why, wide))}`)
   }
   return lines
 }
@@ -211,6 +265,35 @@ function corroboration(change: Change, voice: Voice = 'technical'): { full: stri
  * Phrased per kind. A generic "N others do not" reads as nonsense once the
  * property is something like "first write from billing/".
  */
+/** Wrap prose on spaces. */
+function words_(text: string, max: number): string[] {
+  const out: string[] = []
+  let line = ''
+  for (const word of text.split(' ')) {
+    if (line !== '' && width(line) + width(word) + 1 > max) { out.push(line); line = word }
+    else line = line === '' ? word : `${line} ${word}`
+  }
+  if (line !== '') out.push(line)
+  return out
+}
+
+/** Break on separators a path actually has, so a wrapped URL stays readable. */
+function wrap(text: string, max: number): string[] {
+  if (width(text) <= max) return [text]
+  const out: string[] = []
+  let line = ''
+  for (const part of text.split(/(?<=[/?&])/)) {
+    if (line !== '' && width(line) + width(part) > max) { out.push(line); line = part }
+    else line += part
+  }
+  if (line !== '') out.push(line)
+  return out.flatMap((l) => (width(l) <= max ? [l] : [truncate(l, max)]))
+}
+
+const seeAll = (n: number, voice: Voice): string => voice === 'plain'
+  ? `+${n} more — ask your agent to run: appguide --all`
+  : `+${n} more · appguide since --all`
+
 const plainNoun = (noun: string): string => noun
   .replace(/\broutes\b/, 'URLs')
   .replace(/^modules write (.+)$/, 'places change $1')
@@ -256,10 +339,29 @@ const COVERAGE_MAX = 3
 export function coverageLines(gaps: readonly Fact[], cols: number, voice: Voice = 'technical'): string[] {
   if (gaps.length === 0) return []
   const w = words(voice)
-  const shown = gaps.slice(0, COVERAGE_MAX)
-  const lines = shown.map((g) => `   ${dim(truncate(voice === 'plain' ? w.gap(g) : describeGap(g), cols - 4))}`)
-  const rest = gaps.length - shown.length
-  if (rest > 0) lines.push(`   ${dim(`and ${rest} more I could not read`)}`)
+
+  // One line per *reason*, not per instance. Twelve router routes sharing one
+  // caveat used to bury the single gap that mattered — "I can't read hono" —
+  // under eleven copies of the same sentence.
+  const byReason = new Map<string, Fact[]>()
+  for (const g of gaps) {
+    if (g.kind !== 'gap') continue
+    const list = byReason.get(g.reason)
+    if (list) list.push(g)
+    else byReason.set(g.reason, [g])
+  }
+
+  const entries = [...byReason.values()]
+  const shown = entries.slice(0, COVERAGE_MAX)
+  const lines = shown.flatMap((group) => {
+    const first = group[0]!
+    const text = voice === 'plain' ? w.gap(first) : describeGap(first)
+    const more = group.length > 1 ? ` (and ${group.length - 1} more like it)` : ''
+    // A blind spot cut off mid-sentence is a blind spot nobody reads.
+    return words_(`${text}${more}`, cols - 4).map((l) => `   ${dim(l)}`)
+  })
+  const rest = entries.length - shown.length
+  if (rest > 0) lines.push(`   ${dim(`and ${rest} other kind${rest === 1 ? '' : 's'} of thing I could not read`)}`)
   return lines
 }
 
@@ -269,6 +371,7 @@ function describeGap(g: Fact): string {
     case 'parse-error': return `${g.subject}: ${g.detail}`
     case 'unsupported-framework': return `${g.subject}: ${g.detail}`
     case 'computed-route-path': return `${g.subject}: route path is built at runtime`
+    case 'unresolved-route-prefix': return `${g.subject}: router mounted elsewhere, prefix unknown`
     case 'dynamic-dispatch': return `${g.subject}: dispatches dynamically`
     case 'raw-sql': return `${g.subject}: raw SQL, not parsed`
     case 'unresolved-import': return `${g.subject}: ${g.detail}`

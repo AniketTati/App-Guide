@@ -11,6 +11,7 @@ export type GapReason =
   | 'unresolved-import'
   | 'dynamic-dispatch'
   | 'computed-route-path'
+  | 'unresolved-route-prefix'
   | 'raw-sql'
   | 'unsupported-framework'
 

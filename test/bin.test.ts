@@ -57,6 +57,8 @@ describe('the binary, invoked the way npm invokes it', () => {
     const first = await run(process.execPath, [join(dir, 'dist/cli.js'), 'init-hook'], { cwd: dir })
     expect(first.stdout).toContain('first mark taken')
     await access(join(dir, '.appguide/mark'))
+    // Records the command that works here, so instructions never name one that doesn't.
+    expect(JSON.parse(await readFile(join(dir, '.appguide/config.json'), 'utf8')).run).toBe('node dist/cli.js')
 
     // A second install must not overwrite a mark with unseen changes behind it.
     const before = await readFile(join(dir, '.appguide/mark'), 'utf8')

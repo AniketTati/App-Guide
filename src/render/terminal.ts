@@ -10,7 +10,7 @@ const MAX_WIDTH = 100
 /** Short by contract. After twenty three-line receipts, a twenty-line one
  *  triggers a reaction before the eye reads a word — so length is the severity
  *  channel, and it only works if it is bounded. */
-const MAX_LINES = 22
+const MAX_LINES = 26
 const FRAME_LINES = 3
 
 export interface TerminalOptions {
@@ -20,10 +20,21 @@ export interface TerminalOptions {
   /** 'plain' translates every term for a reader who does not write code. It
    *  never adds a judgement the technical voice would not make. */
   voice?: Voice
+  /** The invocation appguide was installed with. Every command the receipt
+   *  tells someone to run starts with this — a bare `appguide` is on nobody's
+   *  PATH, so printing it hands the reader a command that fails. */
+  command?: string
 }
 
+const DEFAULT_COMMAND = 'npx appguide'
+
+/** An explicit width wins, then a real terminal's, then $COLUMNS — which is all
+ *  there is when output is piped, as it is inside a hook. */
+export const terminalWidth = (explicit: number | undefined, stdoutColumns: number | undefined, env: string | undefined): number =>
+  Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, explicit ?? stdoutColumns ?? (Number(env) || 80)))
+
 export function renderTerminal(report: Report, opts: TerminalOptions = {}): string {
-  const cols = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, opts.columns ?? process.stdout.columns ?? 80))
+  const cols = terminalWidth(opts.columns, process.stdout.columns, process.env['COLUMNS'])
   const nothing = report.top.length === 0 && report.also.length === 0
   const voice = opts.voice ?? 'technical'
 
@@ -43,10 +54,10 @@ function allClear(report: Report, cols: number, voice: Voice): string {
         ? "first look — I've made a note of what's here. Run again after your next session."
         : 'first run — mark established, nothing to compare yet')
     : w.headline(report)
-  const head = ` ${bold('appguide')} ${dim('·')} ${session(report)} ${dim('·')} `
+  const head = ` ${bold('appguide')} ${dim('·')} ${session(report, voice)} ${dim('·')} `
   const lines = width(head) + width(headline) <= cols
     ? [`${head}${headline}`]
-    : [` ${bold('appguide')} ${dim('·')} ${session(report)}`, `   ${dim(truncate(headline, cols - 4))}`]
+    : [` ${bold('appguide')} ${dim('·')} ${session(report, voice)}`, `   ${dim(truncate(headline, cols - 4))}`]
   const cover = coverageLines(report.gaps, cols, voice)
   lines.push(...(cover.length > 0
     ? cover
@@ -57,35 +68,14 @@ function allClear(report: Report, cols: number, voice: Voice): string {
 function full(report: Report, cols: number, opts: TerminalOptions): string {
   const voice = opts.voice ?? 'technical'
   const w = words(voice)
-  // Numbered so a reader can say "explain #1" instead of retyping a path.
-  let n = 0
+  const command = opts.command ?? DEFAULT_COMMAND
+  const total = report.top.length + report.also.length
+
   const head: string[] = [
-    ` ${bold('appguide')} ${dim('·')} ${session(report)}`,
+    ` ${bold('appguide')} ${dim('·')} ${session(report, voice)}`,
     '',
     ...prose(report.summary, cols),
   ]
-
-  // A wrapped subject makes an entry taller, so at a narrow terminal three
-  // findings may not fit. Drop the last rather than overflow — the budget is
-  // what makes length a severity signal, and an entry that spills is worse
-  // than one deferred to `--all`.
-  const top: string[] = []
-  let topShown = 0
-  if (report.top.length > 0) {
-    const reserve = 4 /* header + blank + label */ + (report.gaps.length > 0 ? 4 : 0) + 3 /* footer */ + FRAME_LINES
-    let used = 0
-    const body: string[] = []
-    for (const change of report.top) {
-      const rendered = entry(change, cols, true, voice, n + 1)
-      if (used + rendered.length + reserve + prose(report.summary, cols).length > MAX_LINES + FRAME_LINES) break
-      body.push(...rendered)
-      used += rendered.length
-      n += 1
-      topShown += 1
-    }
-    if (body.length > 0) top.push('', ` ${dim(w.labels.top)}`, ...body)
-  }
-  const deferred = report.top.length - topShown
 
   const coverage: string[] = []
   if (report.gaps.length > 0) {
@@ -96,57 +86,36 @@ function full(report: Report, cols: number, opts: TerminalOptions): string {
         .map((l) => `   ${dim(l)}`))
   }
 
-  const hidden = opts.hiddenCount ?? report.totalChanges
-  const footer = ['', ...w.footer(hidden, report.top.length > 0, cols).split('\n').map((l) => `   ${dim(truncate(l, cols - 4))}`)]
+  const footer = (hidden: number): string[] => [
+    '',
+    ...[...(hidden > 0 ? [seeAll(hidden, voice, command)] : []), w.footer(opts.hiddenCount ?? total, report.top.length > 0, cols, command)]
+      .join('\n').split('\n').map((l) => `   ${dim(truncate(l, cols - 4))}`),
+  ]
 
-  // Everything above is fixed cost. `also` is the only section allowed to give
-  // ground — the coverage block never is, because a receipt that drops its own
-  // blind spots to save room is the failure this tool exists to prevent.
-  const fixed = head.length + top.length + coverage.length + footer.length + FRAME_LINES
-  const also: string[] = []
-  const available = MAX_LINES + FRAME_LINES - fixed
-  // A section header with nothing under it is noise: the footer's `--all (n)`
-  // already says there is more. Show the section only if at least one entry
-  // fits beneath it.
-  if (report.also.length > 0 && available >= 3) {
-    const capacity = available - 2
-    const needsMore = report.also.length > capacity
-    const shown = report.also.slice(0, needsMore ? capacity - 1 : capacity)
-    // A header whose only content is "+N more" says nothing the footer's
-    // `--all (n)` does not already say.
-    if (shown.length === 0) return frame([...head, ...top, ...coverage, ...footer], cols)
-    also.push('', ` ${dim(w.labels.also)}`)
-    for (const change of shown) also.push(...entry(change, cols, false, voice, ++n))
-    const rest = report.also.length - shown.length + deferred
-    if (rest > 0) also.push(`   ${dim(seeAll(rest, voice))}`)
-  } else if (report.also.length + deferred > 0) {
-    // No room for the section at all. Still say the rest exists — the summary
-    // sentence may have led with a kind that never made the list.
-    also.push('', `   ${dim(seeAll(report.also.length + deferred, voice))}`)
+  // Findings are placed whole and in order until the budget runs out, and
+  // whatever did not fit is counted in the footer, which never gives ground.
+  // The previous approach trimmed lines, and the line it trimmed first was the
+  // one saying more findings existed.
+  let budget = MAX_LINES - head.length - coverage.length - footer(1).length
+  const body: string[] = []
+  let shown = 0
+  const place = (label: string, changes: readonly Change[], evidence: boolean, offset: number): boolean => {
+    let labelled = false
+    for (let i = 0; i < changes.length; i++) {
+      const lines = entry(changes[i]!, cols, evidence, voice, offset + i + 1)
+      const need = lines.length + (labelled ? 0 : 2)
+      if (need > budget) return false
+      if (!labelled) { body.push('', ` ${dim(label)}`); labelled = true }
+      body.push(...lines)
+      budget -= need
+      shown++
+    }
+    return true
   }
+  // Never show a lower-priority finding while a higher-priority one is hidden.
+  if (place(w.labels.top, report.top, true, 0)) place(w.labels.also, report.also, false, report.top.length)
 
-  // Estimating what will fit is fragile once entries can wrap, so the budget is
-  // enforced as a post-condition instead. Sections give ground in a fixed
-  // order, and coverage and the footer never do: a receipt that drops its own
-  // blind spots to save a line is the failure this tool exists to prevent.
-  const body = fit([head, top, also], coverage.length + footer.length)
-  return frame([...body, ...coverage, ...footer], cols)
-}
-
-/** Trims `also` first, then `top`, never the sections passed as fixed cost. */
-function fit(sections: readonly string[][], fixedCost: number): string[] {
-  const [head = [], top = [], also = []] = sections
-  const budget = MAX_LINES - fixedCost
-  const trimmable = [also, top]
-  const kept = [[...also], [...top]]
-
-  const total = (): number => head.length + kept[1]!.length + kept[0]!.length
-  for (let i = 0; i < trimmable.length && total() > budget; i++) {
-    // Keep at least the section label plus one line, or the header is orphaned.
-    while (total() > budget && kept[i]!.length > 0) kept[i]!.pop()
-  }
-  const [alsoKept = [], topKept = []] = kept
-  return [...head, ...(topKept.length > 2 ? topKept : []), ...(alsoKept.length > 2 ? alsoKept : [])]
+  return frame([...head, ...body, ...coverage, ...footer(total - shown)], cols)
 }
 
 function frame(lines: readonly string[], cols: number): string {
@@ -154,8 +123,13 @@ function frame(lines: readonly string[], cols: number): string {
   return [rule, ...lines, rule, ''].join('\n')
 }
 
-const session = (report: Report): string =>
-  `${report.session.files} file${report.session.files === 1 ? '' : 's'}`
+/** How many files were read — not how many the agent touched, which is what
+ *  a bare "11 files" beside a three-file session was taken to mean. */
+const session = (report: Report, voice: Voice = 'technical'): string => {
+  const n = report.session.files
+  const files = `${n} file${n === 1 ? '' : 's'}`
+  return voice === 'plain' ? `read ${files}` : `${files} read`
+}
 
 /** The only prose in the output. It reads three times faster than a table for
  *  the "do I care" question, so it is the one thing allowed to wrap. */
@@ -309,16 +283,16 @@ export function onlyOne(kind: Fact['kind'], voice: Voice): string {
   return 'only one of its kind'
 }
 
-const seeAll = (n: number, voice: Voice): string => voice === 'plain'
-  ? `+${n} more — ask your agent to run: appguide --all`
-  : `+${n} more · appguide since --all`
+const seeAll = (n: number, voice: Voice, command: string): string => voice === 'plain'
+  ? `+${n} more not shown. To see them all, ask your agent to run:\n  ${command} since --all`
+  : `+${n} more:\n  ${command} since --all`
 
-const plainNoun = (noun: string): string => noun
+export const plainNoun = (noun: string): string => noun
   .replace(/\broutes\b/, 'URLs')
   .replace(/^modules write (.+)$/, 'places change $1')
   .replace(/\bdependencies\b/, 'packages')
   .replace(/\bexternal calls\b/, 'outside services')
-const plainProperty = (p: string): string => p
+export const plainProperty = (p: string): string => p
   .replace(/^no middleware$/, 'nothing checks it')
   .replace(/^new dependency$/, 'new package')
   .replace(/^new outbound call$/, 'new outside service')
@@ -333,14 +307,17 @@ function secondary(change: Change, voice: Voice = 'technical'): string {
   switch (change.fact.kind) {
     case 'route': return d.matching === 1
       ? (plain ? 'every other URL is checked' : 'every other route has one')
-      : (plain ? `${others} of the rest are checked` : `${others} others have one`)
+      : (plain ? `${others} of the rest ${others === 1 ? 'is' : 'are'} checked` : `${others} other${others === 1 ? ' has' : 's have'} one`)
     case 'write': return plain
       ? `${others} other place${others === 1 ? '' : 's'} already could`
       : `${others} other module${others === 1 ? '' : 's'} write it`
     case 'library': return plain
-      ? `${others} other packages were already here`
-      : `${others} other dependencies were already here`
-    default: return `${others} others do not`
+      ? `${others} other package${others === 1 ? ' was' : 's were'} already here`
+      : `${others} other dependenc${others === 1 ? 'y was' : 'ies were'} already here`
+    case 'external': return plain
+      ? `${others} other outside service${others === 1 ? ' was' : 's were'} already used`
+      : `${others} other host${others === 1 ? ' was' : 's were'} already called`
+    default: return `${others} other${others === 1 ? ' does' : 's do'} not`
   }
 }
 

@@ -19,7 +19,7 @@ export interface Words {
   why(change: Change): string
   gap(fact: Fact): string
   headline(report: Report): string
-  footer(hidden: number, numbered: boolean, cols: number): string
+  footer(total: number, numbered: boolean, cols: number, command: string): string
   labels: { top: string; also: string; gaps: string }
 }
 
@@ -35,7 +35,8 @@ export const technical: Words = {
   why: () => '',
   gap: (g) => (g.kind === 'gap' ? `${g.subject}: ${g.detail}` : ''),
   headline: (r) => (r.gaps.length > 0 ? 'nothing new in what I can read' : 'nothing new to the shape'),
-  footer: (hidden) => `appguide since --all (${hidden}) · --mark`,
+  footer: (total, _numbered, _cols, command) =>
+    `${total} change${total === 1 ? '' : 's'} · clear with:\n  ${command} seen`,
   labels: { top: 'NEW TO THIS CODEBASE', also: 'ALSO CHANGED', gaps: 'NOT COVERED' },
 }
 
@@ -64,6 +65,9 @@ export const plain: Words = {
     }
     if (f.kind === 'library') return `version ${f.version}${f.direct ? '' : ", which isn't in your package list"}`
     if (f.kind === 'external') return f.via === 'url' ? 'called directly' : `through ${f.via}`
+    // A bare "controllers → review" gave the reader an arrow and no words.
+    if (f.kind === 'write') return c.type === 'removed' ? 'no longer changes it' : 'now changes this data'
+    if (f.kind === 'read') return c.type === 'removed' ? 'no longer reads it' : 'now reads this data'
     return ''
   },
 
@@ -71,14 +75,22 @@ export const plain: Words = {
     const f = c.fact
     if (c.type !== 'added') return ''
     switch (f.kind) {
-      case 'route':
-        return f.middleware !== 'unresolved' && f.middleware.length === 0
-          ? 'Anyone on the internet can reach this one.'
-          : 'A new way into your app.'
+      case 'route': {
+        if (f.middleware === 'unresolved' || f.middleware.length > 0) return 'A new way into your app.'
+        // What the method means by HTTP's own definition — never a guess about
+        // what the handler does.
+        switch (f.method.toUpperCase()) {
+          case 'DELETE': return 'Anyone on the internet can send it a delete request.'
+          case 'PUT': case 'PATCH': return 'Anyone on the internet can send it changes.'
+          case 'POST': return 'Anyone on the internet can send data to this one.'
+          case 'ALL': return 'Anyone on the internet can send it any kind of request.'
+          default: return 'Anyone on the internet can reach this one.'
+        }
+      }
       case 'library': return "Someone else's code now runs inside your app."
       case 'external': return 'Your app now talks to a server it never used before.'
-      case 'write': return "This part of your app couldn't change that data before."
-      case 'read': return "This part of your app couldn't see that data before."
+      case 'write': return "This part of your app didn't change that data before."
+      case 'read': return "This part of your app didn't read that data before."
       default: return ''
     }
   },
@@ -102,14 +114,13 @@ export const plain: Words = {
 
   // The hint is the point of the footer, so at a narrow terminal the count
   // goes rather than the instruction.
-  // Two lines, because the second one is the off switch. Without it the same
-  // list reprints after every session forever, which is what gets a tool
-  // uninstalled in week two — not being wrong, but not shutting up.
-  footer: (hidden, numbered, cols) => {
-    const total = `${hidden} change${hidden === 1 ? '' : 's'} in total`
+  // The off switch gets its own line, and the command gets a line of its own
+  // under it, so it is never truncated into something that does not run.
+  footer: (total, numbered, cols, command) => {
+    const count = `${total} change${total === 1 ? '' : 's'} in total`
     const hint = numbered ? 'Ask your agent: "explain #1" or "fix #1"' : ''
-    const first = hint === '' ? total : (hint.length + total.length + 9 <= cols - 4 ? `${hint}   ·   ${total}` : hint)
-    return `${first}\nDone looking? Ask your agent to run: appguide seen`
+    const first = hint === '' ? count : (hint.length + count.length + 9 <= cols - 4 ? `${hint}   ·   ${count}` : hint)
+    return `${first}\nDone looking? Ask your agent to run:\n  ${command} seen`
   },
 
   labels: { top: 'WORTH A LOOK', also: 'ALSO CHANGED', gaps: "WHAT I COULDN'T READ" },

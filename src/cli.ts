@@ -6,13 +6,16 @@ import { run } from './run.js'
 import { read as readMark } from './model/snapshot.js'
 import { renderTerminal } from './render/terminal.js'
 import { setColor } from './render/ansi.js'
-import { installHook } from './hook/install.js'
+import { ensureIgnored, installHook, runBase } from './hook/install.js'
 import { renderMarkdown } from './render/markdown.js'
 import { ask } from './render/ask.js'
-import { readConfig } from './config.js'
+import { readConfig, writeConfig } from './config.js'
 
 /** Bumped whenever the --json shape changes in a way a consumer would notice. */
 export const JSON_SCHEMA_VERSION = 1
+
+/** The command to tell someone to run: how it was installed, if recorded. */
+const commandFor = async (root: string): Promise<string> => (await readConfig(root)).run ?? (await runBase(root))
 
 const require = createRequire(import.meta.url)
 const { version } = require('../package.json') as { version: string }
@@ -89,7 +92,7 @@ export async function main(argv: string[]): Promise<number> {
       }
       if (values['no-color']) setColor(false)
       const shown = values.all ? { ...report, also: [...report.top, ...report.also], top: [] } : report
-      process.stdout.write(renderTerminal(shown, { hiddenCount: report.totalChanges, voice }))
+      process.stdout.write(renderTerminal(shown, { hiddenCount: report.totalChanges, voice, command: await commandFor(process.cwd()) }))
       return 0
     }
     case 'seen': {
@@ -120,7 +123,12 @@ export async function main(argv: string[]): Promise<number> {
     case 'init-hook': {
       const r = await installHook(process.cwd(), values.uninstall, values.plain)
       if (r.outcome === 'removed' || r.outcome === 'not-installed') {
-        process.stdout.write(`${r.outcome === 'removed' ? 'removed' : 'nothing to remove'}\n  ${r.path}\n`)
+        const plainVoice = values.plain || (await readConfig(process.cwd())).plain
+        process.stdout.write(r.outcome === 'removed'
+          ? (plainVoice
+              ? "Removed. It won't run when your agent finishes any more.\nMy notes are still in .appguide/ — delete that folder if you like.\n"
+              : `removed\n  ${r.path}\n`)
+          : (plainVoice ? "There was nothing to remove — it isn't set up here.\n" : `nothing to remove\n  ${r.path}\n`))
         return 0
       }
       if (r.verified !== true) {
@@ -137,9 +145,16 @@ export async function main(argv: string[]): Promise<number> {
       // someone deciding whether this is worth keeping, is one session too many.
       const hadMark = (await readMark(process.cwd())).ok
       if (!hadMark) await run({ root: process.cwd(), mark: true })
+      // Record how it was installed, so every instruction printed later names a
+      // command that actually runs — and the voice, so every command inherits it.
+      await writeConfig(process.cwd(), { plain: values.plain, run: r.base })
+      const ignored = await ensureIgnored(process.cwd())
+      const note = ignored !== 'added' ? '' : values.plain
+        ? '\nI added .appguide/ to your .gitignore, so my notes stay out of your code.'
+        : '\nadded .appguide/ to .gitignore'
       process.stdout.write(values.plain
-        ? `Done, and I checked that it works. I've taken a first look at your app, so\nthe next time your agent finishes you'll see what it changed. Most of the\ntime it will say nothing happened — that's the point.\n  ${r.path}\n`
-        : `installed and verified — ${hadMark ? 'existing mark kept' : 'first mark taken'}; runs when your agent finishes\n  ${r.path}\n`)
+        ? `Done, and I checked that it works. I've taken a first look at your app, so\nthe next time your agent finishes you'll see what it changed. Most of the\ntime it will say nothing happened — that's the point.${note}\n\nSettings: ${r.path}\n`
+        : `installed and verified — ${hadMark ? 'existing mark kept' : 'first mark taken'}; runs when your agent finishes${note}\nsettings: ${r.path}\n`)
       return 0
     }
     default:

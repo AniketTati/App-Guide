@@ -110,3 +110,13 @@ describe('determinism', () => {
     expect(rank([without, with_])[0]).toBe(with_)
   })
 })
+
+describe('ranking within routes', () => {
+  it('puts a route that accepts writes above one that only serves reads', () => {
+    const base = { middleware: [] as string[], framework: 'express', where: { file: 'a.ts', line: 1 } }
+    const get: Change = { type: 'added', fact: { kind: 'route', method: 'GET', path: '/a', ...base }, denominator: { property: 'no middleware', matching: 2, total: 4, noun: 'routes' } }
+    const del: Change = { type: 'added', fact: { kind: 'route', method: 'DELETE', path: '/z', ...base }, denominator: { property: 'no middleware', matching: 2, total: 4, noun: 'routes' } }
+    expect(rank([get, del])[0]).toBe(del)
+  })
+})
+

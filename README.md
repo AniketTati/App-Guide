@@ -9,10 +9,10 @@ database writes — plus an explicit list of what it could not see.
 Deterministic. Local. No model, no API key, no account.
 
 > **Status: works, installable from GitHub, not yet on npm.** The commands
-> below run straight from this repository. The very first run takes about 15
-> seconds while it downloads and builds; after that each run takes about 2.5
-> seconds, most of it a check against GitHub. Plan and reasoning:
-> **[docs/PLAN.md](docs/PLAN.md)**.
+> below run straight from this repository. The very first run takes 15–25
+> seconds while it downloads and builds; after that each run takes about 3
+> seconds, most of it a check against GitHub — so for now it needs an internet
+> connection each time. Plan and reasoning: **[docs/PLAN.md](docs/PLAN.md)**.
 
 ## What it looks like
 
@@ -79,8 +79,14 @@ It looks like this:
 You don't have to act on any of it yourself. Say **"explain #1"** or
 **"fix #1"** to your agent — it can already see the summary.
 
-When you've read it, tell your agent to run **`appguide seen`** and the next
-report starts fresh from there. Otherwise the same list comes back every time.
+When you've read it, the report prints the exact command for your agent to run
+so the next one starts fresh. Otherwise the same list comes back every time.
+
+To remove it, ask your agent to run:
+
+```
+npx --yes github:AniketTati/App-Guide init-hook --uninstall
+```
 
 **It will never tell you something is dangerous.** It says *"nothing checks
 it — 1 of 10 URLs"*, which is a count you can check, not an opinion you have to
@@ -126,6 +132,11 @@ app where the report said routes existed that it couldn't list.
 
 These are small, idiomatic example apps, not production codebases; expect real
 apps to be messier. Reproduce it with `pnpm bench:recall`.
+
+A later hands-on review found a common pattern those apps don't use —
+`router.route('/x').get(…).post(…)` chains — being missed silently. That is
+fixed and tested, and it is exactly why the number is published rather than
+asserted.
 
 ## What it will not do
 

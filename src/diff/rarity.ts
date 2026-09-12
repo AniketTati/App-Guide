@@ -1,6 +1,12 @@
 import type { Fact } from '../model/facts.js'
 import type { Change, Denominator } from '../model/report.js'
 
+const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE', 'ALL'])
+
+/** Methods that change state by HTTP's own definition. Structural — not a guess
+ *  from a route's name or what its handler seems to do. */
+export const isWriteMethod = (method: string): boolean => WRITE_METHODS.has(method.toUpperCase())
+
 /**
  * Severity is arithmetic, never adjective. The tool does not say a change is
  * dangerous; it says the change is the only one of its kind here, and lets the
@@ -41,10 +47,13 @@ function denominatorFor(change: Change, pop: Population): Denominator | null {
   const f = change.fact
 
   if (f.kind === 'route') {
-    // Only interesting when it is the exception. If half the routes are open,
-    // "no middleware" is this codebase's norm and saying so is noise.
     const open = f.middleware !== 'unresolved' && f.middleware.length === 0
-    if (!open || pop.routes < 2 || pop.bare / pop.routes > 0.5) return null
+    if (!open || pop.routes < 2) return null
+    // Open *reads* can be this codebase's norm — public pages are ordinary — and
+    // saying so every time is noise. Open *writes* are different: an app full
+    // of open login and signup forms does not make a new open DELETE ordinary.
+    // Applying the quiet rule to both buried exactly that route in a review.
+    if (!isWriteMethod(f.method) && pop.bare / pop.routes > 0.5) return null
     return { property: 'no middleware', matching: pop.bare, total: pop.routes, noun: 'routes' }
   }
 

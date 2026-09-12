@@ -49,3 +49,25 @@ describe('denominators', () => {
     expect(d?.denominator).toBeUndefined()
   })
 })
+
+describe('open writes are never excused by an open codebase', () => {
+  const r = (method: string, path: string, mw: string[]): Fact =>
+    ({ kind: 'route', method, path, middleware: mw, framework: 'express', where: { file: 'a.ts', line: 1 } })
+
+  it('reports a new open DELETE even when most routes are open', () => {
+    // Login and signup are open in every app. That made a new open admin
+    // DELETE look like the norm, and it was buried below a Slack webhook.
+    const before = [r('POST', '/register', []), r('POST', '/login', []), r('GET', '/products', []), r('GET', '/products/:id', []), r('PUT', '/products/:id', ['protect'])]
+    const after = [...before, r('DELETE', '/admin/purge', [])]
+    const [d] = withDenominators(compare(before, after), after)
+    expect(d?.denominator).toMatchObject({ property: 'no middleware', matching: 5, total: 6 })
+  })
+
+  it('still stays quiet about a new open read in the same codebase', () => {
+    const before = [r('POST', '/register', []), r('POST', '/login', []), r('GET', '/products', []), r('PUT', '/products/:id', ['protect'])]
+    const after = [...before, r('GET', '/about', [])]
+    const [d] = withDenominators(compare(before, after), after)
+    expect(d?.denominator).toBeUndefined()
+  })
+})
+

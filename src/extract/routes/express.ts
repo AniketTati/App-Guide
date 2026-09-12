@@ -31,6 +31,31 @@ export const express: RouteDetector = {
       const inherited = routers === 1 ? fileMounts.get(file.path) : undefined
       const lineOf = (n: ts.Node): number => src.getLineAndCharacterOfPosition(n.getStart(src)).line + 1
 
+      const emitRoute = (receiver: string, method: string, pathText: string, handlers: readonly ts.Expression[], line: number): void => {
+        const kind = apps.get(receiver)
+        const prefix = prefixes.get(receiver) ?? (kind === 'router' ? inherited : undefined)
+        const mounted = prefix !== undefined || kind === 'app'
+        facts.push({
+          kind: 'route',
+          method: method === 'all' ? 'ALL' : method.toUpperCase(),
+          path: normalise(`${prefix ?? ''}${pathText}`),
+          middleware: middlewareOf(handlers, src),
+          framework: 'express',
+          // A router whose mount we could not find has an unknown prefix. Scope
+          // it so two such routers sharing a path do not collide into one
+          // fabricated change.
+          ...(mounted ? {} : { scope: file.path }),
+          where: { file: file.path, line },
+        })
+        if (!mounted) {
+          facts.push({
+            kind: 'gap', reason: 'unresolved-route-prefix', subject: `${file.path}:${line}`,
+            detail: 'router is mounted elsewhere — the real path has a prefix I cannot see',
+            where: { file: file.path, line },
+          })
+        }
+      }
+
       const visit = (node: ts.Node, helperApp: string | null): void => {
         // `app.resource = function (path, obj) { this.get(path + '/:id', …) }`.
         // Inside a function hung off the app, `this` is the app.
@@ -64,6 +89,27 @@ export const express: RouteDetector = {
             })
           }
 
+          // `router.route('/:id').get(show).put(auth, update)` — the style most
+          // tutorials use. The path lives on .route(); each chained method is its
+          // own route and every argument is a handler. Missing this was silent:
+          // no route and no gap, in the pattern a real review used most.
+          if (ts.isPropertyAccessExpression(callee) && METHODS.has(callee.name.text.toLowerCase())) {
+            const chain = routeChain(callee.expression)
+            const owner = chain === null ? null : receiverApp(chain.base, apps, helperApp)
+            if (chain !== null && owner !== null && node.arguments.length >= 1) {
+              const line = lineOf(node)
+              if (ts.isStringLiteralLike(chain.path)) {
+                emitRoute(owner, callee.name.text.toLowerCase(), chain.path.text, node.arguments, line)
+              } else {
+                facts.push({
+                  kind: 'gap', reason: 'computed-route-path', subject: `${file.path}:${line}`,
+                  detail: `${callee.name.text.toUpperCase()} route path is built at runtime`,
+                  where: { file: file.path, line },
+                })
+              }
+            }
+          }
+
           if (ts.isPropertyAccessExpression(callee)) {
             const method = callee.name.text.toLowerCase()
             const receiver = receiverApp(callee.expression, apps, helperApp)
@@ -73,28 +119,7 @@ export const express: RouteDetector = {
             if (METHODS.has(method) && receiver !== null && first !== undefined && rest.length >= 1) {
               const line = lineOf(node)
               if (ts.isStringLiteralLike(first)) {
-                const kind = apps.get(receiver)
-                const prefix = prefixes.get(receiver) ?? (kind === 'router' ? inherited : undefined)
-                const mounted = prefix !== undefined || kind === 'app'
-                facts.push({
-                  kind: 'route',
-                  method: method === 'all' ? 'ALL' : method.toUpperCase(),
-                  path: normalise(`${prefix ?? ''}${first.text}`),
-                  middleware: middlewareOf(rest, src),
-                  framework: 'express',
-                  // A router whose mount we could not find has an unknown
-                  // prefix. Scope it so two such routers sharing a path do not
-                  // collide into one fabricated change.
-                  ...(mounted ? {} : { scope: file.path }),
-                  where: { file: file.path, line },
-                })
-                if (!mounted) {
-                  facts.push({
-                    kind: 'gap', reason: 'unresolved-route-prefix', subject: `${file.path}:${line}`,
-                    detail: 'router is mounted elsewhere — the real path has a prefix I cannot see',
-                    where: { file: file.path, line },
-                  })
-                }
+                emitRoute(receiver, method, first.text, rest, line)
               } else {
                 facts.push({
                   kind: 'gap', reason: 'computed-route-path', subject: `${file.path}:${line}`,
@@ -111,6 +136,21 @@ export const express: RouteDetector = {
     }
     return facts
   },
+}
+
+/** Walks `.get(a).post(b)` back to the `.route(path)` call it hangs off. */
+function routeChain(expr: ts.Expression): { base: ts.Expression; path: ts.Expression } | null {
+  let e: ts.Expression = expr
+  while (ts.isCallExpression(e) && ts.isPropertyAccessExpression(e.expression)) {
+    const name = e.expression.name.text
+    if (name === 'route') {
+      const [path] = e.arguments
+      return path === undefined ? null : { base: e.expression.expression, path }
+    }
+    if (!METHODS.has(name.toLowerCase())) return null
+    e = e.expression.expression
+  }
+  return null
 }
 
 /** An identifier bound to an app or router, or `this` inside a helper on one. */

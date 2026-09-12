@@ -150,3 +150,29 @@ describe("express — what real apps do (from Express's own examples)", () => {
   })
 })
 
+describe('express — router.route() chains, found silently missing in a real review', () => {
+  it('reads each chained method as its own route, under the mounted prefix', () => {
+    const out = routes(scan({
+      'index.js': "const app = express(); app.use('/api/products', require('./routes/products'))",
+      'routes/products.js': "const router = express.Router(); router.route('/:id').get(getProduct).put(protect, adminOnly, updateProduct); router.route('/:id/reviews').get(getReviews).post(addReview); module.exports = router",
+    }, ['express']))
+    expect(out.map((r) => r.kind === 'route' && `${r.method} ${r.path} ${JSON.stringify(r.middleware)}`).sort()).toEqual([
+      'GET /api/products/:id []',
+      'GET /api/products/:id/reviews []',
+      'POST /api/products/:id/reviews []',
+      'PUT /api/products/:id ["protect","adminOnly"]',
+    ])
+  })
+
+  it('reads app.route() chains', () => {
+    const out = routes(scan({ 'index.js': "const app = express(); app.route('/book').get(a).post(auth, b)" }, ['express']))
+    expect(out.map((r) => r.kind === 'route' && `${r.method} ${r.path}`).sort()).toEqual(['GET /book', 'POST /book'])
+  })
+
+  it('reports a chain whose path is computed, instead of staying silent', () => {
+    const out = scan({ 'index.js': "const app = express(); app.route(base + '/x').get(h)" }, ['express'])
+    expect(routes(out)).toHaveLength(0)
+    expect(gaps(out).map((g) => g.kind === 'gap' && g.reason)).toContain('computed-route-path')
+  })
+})
+

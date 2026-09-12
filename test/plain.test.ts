@@ -64,7 +64,7 @@ describe('a reader who does not write code', () => {
   it('is told why it might matter, without being told it is dangerous', async () => {
     const { dir } = await scenario()
     const out = await plain(dir)
-    expect(out).toContain('Anyone on the internet can reach this one.')
+    expect(out).toContain('Anyone on the internet can send data to this one.')
     // Translating is allowed. Judging is not — a verdict cannot be checked.
     expect(out).not.toMatch(/insecure|dangerous|critical|vulnerab|you should|risk/i)
   })
@@ -181,7 +181,8 @@ describe('choosing the voice once', () => {
 
   it('reads the choice from a config file', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'plain-c-'))
-    await writeFile(join(dir, '.appguide.json'), '{"plain":true}')
+    await mkdir(join(dir, '.appguide'), { recursive: true })
+    await writeFile(join(dir, '.appguide/config.json'), '{"plain":true}')
     expect((await readConfig(dir)).plain).toBe(true)
   })
 

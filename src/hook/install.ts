@@ -28,6 +28,8 @@ export interface InstallResult {
   outcome: Outcome
   path: string
   command: string
+  /** The invocation without a subcommand — what to tell someone to run. */
+  base: string
   /** Whether the command we just wrote actually runs. Saying "Done" over a
    *  hook that emits an npm 404 after every session is worse than saying
    *  nothing — it spends the one moment the reader was paying attention. */
@@ -47,25 +49,31 @@ export async function installHook(root: string, remove = false, plain = false): 
   // out to npm for a package that is right here, and dogfooding is the gate
   // this whole stage exists to make measurable.
   // The voice is chosen once, at install, so nobody has to remember a flag.
-  const base = (await isSelf(root)) ? LOCAL_BASE : npxBase()
+  const base = await runBase(root)
   const command = `${base} since${plain ? ' --plain' : ''}`
 
   const stop = settings.hooks?.Stop ?? []
-  const has = stop.some((m) => m.hooks?.some((h) => h.command === command))
+  // Match any appguide hook, not this exact string. Matching exactly meant a
+  // hook installed with --plain could not be removed without --plain — it said
+  // "nothing to remove" and kept running — and changing voice added a second.
+  const ours = (h: HookEntry): boolean => isAppguideCommand(h.command ?? '')
+  const existing = stop.flatMap((m) => m.hooks ?? []).filter(ours)
+  const without = stop
+    .map((m) => ({ ...m, hooks: (m.hooks ?? []).filter((h) => !ours(h)) }))
+    .filter((m) => (m.hooks ?? []).length > 0)
 
   if (remove) {
-    if (!has) return { outcome: 'not-installed', path, command }
-    const pruned = stop
-      .map((m) => ({ ...m, hooks: (m.hooks ?? []).filter((h) => h.command !== command) }))
-      .filter((m) => (m.hooks ?? []).length > 0)
-    await writeSettings(path, withStop(settings, pruned))
-    return { outcome: 'removed', path, command }
+    if (existing.length === 0) return { outcome: 'not-installed', path, command, base }
+    await writeSettings(path, withStop(settings, without))
+    return { outcome: 'removed', path, command, base }
   }
 
   const check = await verify(root, base)
-  if (has) return { outcome: 'already-installed', path, command, ...check }
-  await writeSettings(path, withStop(settings, [...stop, { matcher: '', hooks: [{ type: 'command', command }] }]))
-  return { outcome: 'installed', path, command, ...check }
+  if (existing.length === 1 && existing[0]?.command === command) {
+    return { outcome: 'already-installed', path, command, base, ...check }
+  }
+  await writeSettings(path, withStop(settings, [...without, { matcher: '', hooks: [{ type: 'command', command }] }]))
+  return { outcome: 'installed', path, command, base, ...check }
 }
 
 /** Run the exact invocation the hook will use, once, before claiming anything.
@@ -92,6 +100,32 @@ function withStop(settings: Settings, stop: Matcher[]): Settings {
   if (Object.keys(hooks).length > 0) return { ...settings, hooks }
   const { hooks: _dropped, ...rest } = settings
   return rest
+}
+
+/** The invocation someone should be told to run — the same one the hook uses. */
+export async function runBase(root: string): Promise<string> {
+  return (await isSelf(root)) ? LOCAL_BASE : npxBase()
+}
+
+/** Any appguide invocation, however it was installed or voiced. */
+export function isAppguideCommand(command: string): boolean {
+  return / since(\s|$)/.test(command) && /(\bappguide\b|App-Guide|dist\/cli\.js)/.test(command)
+}
+
+/** Keeps appguide's notes out of the user's commits — but only edits a
+ *  .gitignore that already exists, and never creates one uninvited. */
+export async function ensureIgnored(root: string): Promise<'added' | 'present' | 'none'> {
+  const path = join(root, '.gitignore')
+  let text: string
+  try {
+    text = await readFile(path, 'utf8')
+  } catch {
+    return 'none'
+  }
+  if (/^\/?\.appguide\/?\s*$/m.test(text)) return 'present'
+  const body = text.replace(/\s*$/, '')
+  await writeFile(path, `${body === '' ? '' : `${body}\n\n`}# appguide's notes on your app (safe to delete)\n.appguide/\n`, 'utf8')
+  return 'added'
 }
 
 async function isSelf(root: string): Promise<boolean> {

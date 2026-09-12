@@ -1,5 +1,5 @@
 import { isBoundary, type Fact, type FactKind } from '../model/facts.js'
-import { withDenominators } from './rarity.js'
+import { isWriteMethod, withDenominators } from './rarity.js'
 import type { Change, Report } from '../model/report.js'
 
 /** Ties break by how far out on the boundary a thing sits. */
@@ -24,6 +24,12 @@ export function rank(changes: readonly Change[]): Change[] {
     // but the comparison is meaningless. Rarity only orders within a kind.
     const weight = KIND_WEIGHT[a.fact.kind] - KIND_WEIGHT[b.fact.kind]
     if (weight !== 0) return weight
+
+    // Within routes, one that accepts writes outranks one that only serves reads.
+    if (a.fact.kind === 'route' && b.fact.kind === 'route') {
+      const writes = Number(isWriteMethod(b.fact.method)) - Number(isWriteMethod(a.fact.method))
+      if (writes !== 0) return writes
+    }
 
     const rarity = compareRarity(a, b)
     if (rarity !== 0) return rarity
@@ -175,7 +181,9 @@ function summarisePlain(changes: readonly Change[], firstRun: boolean): string {
   const writes = added.filter((c) => c.fact.kind === 'write')
   if (writes.length > 0) {
     const tables = [...new Set(writes.map((c) => (c.fact.kind === 'write' ? c.fact.table : '')))]
-    clauses.push(`let ${count(writes.length, 'new part')} of your app change your ${tables.slice(0, 2).join(' and ')} data`)
+    // Not "new part": the module usually existed and only this table is new to
+    // it. And not "your users data", which reads as a typo.
+    clauses.push(`let ${count(writes.length, 'part')} of your app change data in ${tables.slice(0, 2).join(' and ')} for the first time`)
   }
 
   const externals = added.filter((c) => c.fact.kind === 'external')

@@ -30,7 +30,7 @@ describe('the grid holds', () => {
   it('stays inside the length budget so a long one is visibly different', () => {
     // MAX_LINES governs content; the frame adds two rules and a trailing
     // newline on top of it.
-    const BUDGET = 22 + 3
+    const BUDGET = 26 + 3
     for (const cols of [60, 78, 100, 120]) {
       expect(render(alarming(), cols).split('\n').length, `${cols} cols`).toBeLessThanOrEqual(BUDGET)
     }

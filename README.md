@@ -8,10 +8,9 @@ database writes — plus an explicit list of what it could not see.
 
 Deterministic. Local. No model, no API key, no account.
 
-> **Status: it works, it is not published.** The CLI is built and tested (123
-> tests), but `appguide` is not on npm yet — so the `npx` commands below will
-> not resolve until it is. Until then, clone this repo, run `pnpm install &&
-> pnpm build`, and use `node dist/cli.js`. Plan and reasoning:
+> **Status: works, installable from GitHub, not yet on npm.** The commands
+> below run straight from this repository. The first run takes a few seconds
+> while it downloads; after that it's about a second. Plan and reasoning:
 > **[docs/PLAN.md](docs/PLAN.md)**.
 
 ## What it looks like
@@ -43,12 +42,13 @@ notice.
 You don't need a terminal. Paste this into your agent's chat and ask it to run it:
 
 ```
-npx appguide init-hook --plain
+npx --yes github:AniketTati/App-Guide init-hook --plain
 ```
 
-It checks that it actually works before telling you it's set up — if it can't
-run, it says so instead of claiming success. (Right now it can't: this isn't
-published yet. Clone the repo and use `node dist/cli.js init-hook --plain`.)
+It checks that it actually works before telling you it's set up, and takes a
+first look at your app straight away — so the very next time your agent
+finishes, you'll see what it changed. If it can't run, it says so instead of
+claiming success.
 
 From then on, whenever your agent finishes working, a short summary appears
 telling you what it changed. Most of the time it will say nothing happened —

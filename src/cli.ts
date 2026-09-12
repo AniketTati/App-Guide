@@ -3,6 +3,7 @@ import { createRequire } from 'node:module'
 import { realpathSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { run } from './run.js'
+import { read as readMark } from './model/snapshot.js'
 import { renderTerminal } from './render/terminal.js'
 import { setColor } from './render/ansi.js'
 import { installHook } from './hook/install.js'
@@ -131,9 +132,14 @@ export async function main(argv: string[]): Promise<number> {
           : `wrote the hook but could not run it — it will fail on every session\n\n  command: ${r.command}\n  error:   ${r.problem ?? 'no output'}\n\nundo with: appguide init-hook --uninstall\n`)
         return 1
       }
+      // Take the first look now. Otherwise the reader's first session prints
+      // "nothing to compare yet" and only the second is useful — which, for
+      // someone deciding whether this is worth keeping, is one session too many.
+      const hadMark = (await readMark(process.cwd())).ok
+      if (!hadMark) await run({ root: process.cwd(), mark: true })
       process.stdout.write(values.plain
-        ? `Done, and I checked that it works. From now on, when your agent finishes,\nyou'll see a short summary of what it changed. Most of the time it will say\nnothing happened — that's the point.\n  ${r.path}\n`
-        : `installed and verified — runs when your agent finishes\n  ${r.path}\n`)
+        ? `Done, and I checked that it works. I've taken a first look at your app, so\nthe next time your agent finishes you'll see what it changed. Most of the\ntime it will say nothing happened — that's the point.\n  ${r.path}\n`
+        : `installed and verified — ${hadMark ? 'existing mark kept' : 'first mark taken'}; runs when your agent finishes\n  ${r.path}\n`)
       return 0
     }
     default:

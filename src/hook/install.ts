@@ -6,8 +6,17 @@ import { promisify } from 'node:util'
 const exec = promisify(execFile)
 
 const SETTINGS = ['.claude', 'settings.json']
-const NPX = 'npx appguide since'
-const LOCAL = 'node dist/cli.js since'
+/**
+ * Where the hook fetches appguide from. Until the package is on npm this is the
+ * public GitHub repo, which npx can run directly. When it is published, this is
+ * the one line that changes. APPGUIDE_SPEC overrides it.
+ *
+ * `--yes` because a hook is non-interactive: an npx install prompt there hangs
+ * the end of every session.
+ */
+export const DEFAULT_SPEC = 'github:AniketTati/App-Guide'
+const npxBase = (): string => `npx --yes ${process.env['APPGUIDE_SPEC'] ?? DEFAULT_SPEC}`
+const LOCAL_BASE = 'node dist/cli.js'
 
 interface HookEntry { type?: string; command?: string }
 interface Matcher { matcher?: string; hooks?: HookEntry[] }
@@ -38,7 +47,8 @@ export async function installHook(root: string, remove = false, plain = false): 
   // out to npm for a package that is right here, and dogfooding is the gate
   // this whole stage exists to make measurable.
   // The voice is chosen once, at install, so nobody has to remember a flag.
-  const command = `${(await isSelf(root)) ? LOCAL : NPX}${plain ? ' --plain' : ''}`
+  const base = (await isSelf(root)) ? LOCAL_BASE : npxBase()
+  const command = `${base} since${plain ? ' --plain' : ''}`
 
   const stop = settings.hooks?.Stop ?? []
   const has = stop.some((m) => m.hooks?.some((h) => h.command === command))
@@ -52,19 +62,21 @@ export async function installHook(root: string, remove = false, plain = false): 
     return { outcome: 'removed', path, command }
   }
 
-  const check = await verify(root, command)
+  const check = await verify(root, base)
   if (has) return { outcome: 'already-installed', path, command, ...check }
   await writeSettings(path, withStop(settings, [...stop, { matcher: '', hooks: [{ type: 'command', command }] }]))
   return { outcome: 'installed', path, command, ...check }
 }
 
-/** Run the exact command we wrote, once, before claiming anything. */
-async function verify(root: string, command: string): Promise<{ verified: boolean; problem?: string }> {
-  const parts = command.split(' ')
-  const bin = parts[0]
+/** Run the exact invocation the hook will use, once, before claiming anything.
+ *  Built from the base rather than by slicing the finished command, which
+ *  only worked because --version happens to short-circuit. */
+async function verify(root: string, base: string): Promise<{ verified: boolean; problem?: string }> {
+  const [bin, ...args] = base.split(' ')
   if (bin === undefined) return { verified: false, problem: 'empty command' }
   try {
-    const { stdout } = await exec(bin, [...parts.slice(1, -1), '--version'], { cwd: root, timeout: 60_000 })
+    // First fetch from GitHub is slow (a clone and a build); later runs use the cache.
+    const { stdout } = await exec(bin, [...args, '--version'], { cwd: root, timeout: 180_000 })
     return /\d+\.\d+\.\d+/.test(stdout) ? { verified: true } : { verified: false, problem: 'it ran but did not report a version' }
   } catch (err) {
     const detail = (err as { stderr?: string }).stderr ?? (err as Error).message
@@ -97,7 +109,7 @@ async function readSettings(path: string): Promise<Settings> {
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return {}
     // Never overwrite a settings file we could not understand.
-    throw new Error(`${path} exists but is not valid JSON — fix it, or add the hook by hand:\n  ${NPX}`)
+    throw new Error(`${path} exists but is not valid JSON — fix it, or add the hook by hand:\n  ${npxBase()} since`)
   }
 }
 

@@ -1,8 +1,14 @@
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 import { mkdtemp, readFile, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { installHook } from '../src/hook/install.js'
+
+// verify() runs the real install command. Pointed at a path that cannot exist,
+// it fails in about a second with no network — a test suite that clones from
+// GitHub on every run is slow, flaky, and quietly depends on the internet.
+beforeAll(() => { process.env['APPGUIDE_SPEC'] = 'file:/nonexistent-appguide-offline-spec' })
+
 
 const dir = () => mkdtemp(join(tmpdir(), 'appguide-hook-'))
 const settings = async (d: string) => JSON.parse(await readFile(join(d, '.claude/settings.json'), 'utf8'))
@@ -11,7 +17,7 @@ describe('the stop hook', () => {
   it('installs into a repo with no settings at all', async () => {
     const d = await dir()
     expect((await installHook(d)).outcome).toBe('installed')
-    expect(JSON.stringify(await settings(d))).toContain('npx appguide since')
+    expect(JSON.stringify(await settings(d))).toContain('nonexistent-appguide-offline-spec since')
   })
 
   it('is idempotent', async () => {
@@ -33,7 +39,7 @@ describe('the stop hook', () => {
     expect(s.model).toBe('opus')
     expect(s.permissions.allow).toEqual(['Bash(ls:*)'])
     expect(JSON.stringify(s)).toContain('make lint')
-    expect(JSON.stringify(s)).toContain('npx appguide since')
+    expect(JSON.stringify(s)).toContain('nonexistent-appguide-offline-spec since')
   })
 
   it('removes only its own entry', async () => {

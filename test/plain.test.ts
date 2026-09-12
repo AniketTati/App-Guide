@@ -9,6 +9,12 @@ import { setColor } from '../src/render/ansi.js'
 import { installHook } from '../src/hook/install.js'
 import { readConfig } from '../src/config.js'
 
+// verify() runs the real install command. Pointed at a path that cannot exist,
+// it fails in about a second with no network — a test suite that clones from
+// GitHub on every run is slow, flaky, and quietly depends on the internet.
+beforeAll(() => { process.env['APPGUIDE_SPEC'] = 'file:/nonexistent-appguide-offline-spec' })
+
+
 beforeAll(() => setColor(false))
 
 /**

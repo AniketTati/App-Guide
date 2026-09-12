@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeAll } from 'vitest'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { mkdtemp, symlink, mkdir, writeFile, access } from 'node:fs/promises'
+import { mkdtemp, symlink, mkdir, writeFile, access, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -42,4 +42,28 @@ describe('the binary, invoked the way npm invokes it', () => {
     const { stdout } = await run(process.execPath, [link, '--version'])
     expect(stdout.trim()).toMatch(/^\d+\.\d+\.\d+/)
   })
+
+  it('takes the first look at install, so the first session is already useful', async () => {
+    // Without this, the reader's first session says "nothing to compare yet"
+    // and only the second shows anything — one session too many for someone
+    // deciding whether this is worth keeping.
+    const dir = await mkdtemp(join(tmpdir(), 'appguide-onboard-'))
+    await mkdir(join(dir, 'dist'), { recursive: true })
+    await mkdir(join(dir, 'src'), { recursive: true })
+    await symlink(dist, join(dir, 'dist/cli.js'))
+    await writeFile(join(dir, 'package.json'), '{"name":"appguide"}')
+    await writeFile(join(dir, 'src/a.ts'), 'export const a = 1')
+
+    const first = await run(process.execPath, [join(dir, 'dist/cli.js'), 'init-hook'], { cwd: dir })
+    expect(first.stdout).toContain('first mark taken')
+    await access(join(dir, '.appguide/mark'))
+
+    // A second install must not overwrite a mark with unseen changes behind it.
+    const before = await readFile(join(dir, '.appguide/mark'), 'utf8')
+    await writeFile(join(dir, 'src/b.ts'), 'export const b = 2')
+    const again = await run(process.execPath, [join(dir, 'dist/cli.js'), 'init-hook'], { cwd: dir })
+    expect(again.stdout).toContain('existing mark kept')
+    expect(await readFile(join(dir, '.appguide/mark'), 'utf8')).toBe(before)
+  }, 60000)
 })
+

@@ -51,9 +51,12 @@ first look at your app straight away — so the very next time your agent
 finishes, you'll see what it changed. If it can't run, it says so instead of
 claiming success.
 
-From then on, whenever your agent finishes working, a short summary appears
-telling you what it changed. Most of the time it will say nothing happened —
-that's the point. The value is that the one time it isn't nothing, you notice.
+From then on, when your agent finishes working, a short summary appears in your
+Claude Code session telling you what it changed — once, not after every reply.
+Most of the time it just says nothing new. The value is that the one time it
+isn't nothing, you notice.
+
+It works in Claude Code. Cursor and other agents aren't supported yet.
 
 It looks like this:
 
@@ -77,7 +80,8 @@ It looks like this:
 ```
 
 You don't have to act on any of it yourself. Say **"explain #1"** or
-**"fix #1"** to your agent — it can already see the summary.
+**"fix #1"** to your agent — the summary is handed to it along with your next
+message, so it knows what #1 means.
 
 When you've read it, the report prints the exact command for your agent to run
 so the next one starts fresh. Otherwise the same list comes back every time.

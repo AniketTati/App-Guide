@@ -68,6 +68,18 @@ describe('the receipt, after the third review', () => {
     expect(md).not.toMatch(/middleware|outbound call|modules write/)
   })
 
+  it('gives a long export one line, not a line of spaces that hides the ones after it', () => {
+    // Found by installing it on this repository: 17 new exports, 9 shown, the
+    // rest pushed out of the budget by whitespace-only lines.
+    const exports: Change[] = Array.from({ length: 12 }, (_, i) => ({
+      type: 'added',
+      fact: { kind: 'export', module: `src/hook/deliver-${i}.ts`, symbol: `deliverFromStop${i}`, where: where(`src/hook/deliver-${i}.ts`) },
+    }))
+    const out = renderTerminal(toReport(exports, [], { files: 49 }), { columns: 80 })
+    expect(out.split('\n').filter((l) => l !== '' && l.trim() === '')).toEqual([])
+    expect((out.match(/deliverFromStop\d+/g) ?? []).length).toBe(12)
+  })
+
   it('gives a data change words, not only an arrow', () => {
     const r = toReport([{ type: 'added', fact: { kind: 'write', table: 'review', module: 'controllers', where: where('c.js') } }], [], { files: 3 }, [], false, 'plain')
     expect(renderTerminal(r, { columns: 80, voice: 'plain' })).toContain('now changes this data')

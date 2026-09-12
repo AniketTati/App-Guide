@@ -464,13 +464,61 @@ it is defensible.
     a route, and routes registered through `app[method](…)` or a helper using
     `this` produced no gap at all — silence with no basis. Telling measurement
     bugs from product bugs meant reading every miss.
-90. **It is installable today without claiming an npm name.** npx runs a package
+90. **It is installable today without claiming an npm name.** **[CORRECTED BY #92]**
+    npx runs a package
     straight from a public GitHub repo, which is reversible where publishing is
     not. The non-developer install was run end to end through it: verified the
     install, took the first look, and the next agent session produced a real
     receipt. About 15s the first time, 2.5s per hook run after — most of that
     is the network check against GitHub, not the tool.
-91. **The first session now produces a real receipt.** Installing previously
+91. **The first session now produces a real receipt.** **[CORRECTED BY #92]**
+    Installing previously
     took no snapshot, so the first session said "nothing to compare yet" and
     only the second was useful. `init-hook` takes the first look itself.
+
+## 18. Getting the receipt in front of a person
+
+92. **Every receipt before this was invisible inside Claude Code.** Claude Code
+    sends a Stop hook's plain stdout to its debug log; only a handful of events
+    turn plain stdout into context or display, and Stop is not one of them. The
+    hook printed the receipt that way, and every test passed because the tests
+    ran the command directly, never through Claude Code. #90 and #91 measured
+    the command, not what a person sees. This repository's own session shows
+    it: the old hook ran after 22 replies, and its output went into the
+    transcript and nowhere a reader looks.
+93. **Two hooks, each on the one channel documented to reach its reader.** The
+    Stop hook prints JSON whose `systemMessage` is shown to the user, and leaves
+    the same report in `.appguide/pending`. A UserPromptSubmit hook, whose plain
+    stdout is injected into Claude's context, hands that copy over with the
+    person's next message and deletes it. That is what makes "explain #1" mean
+    something. Stop's `decision: "block"` and its `additionalContext` were
+    rejected: both keep the conversation going, which would put Claude back to
+    work after every reply. The prompt hook is a `cat`, never `npx`, because it
+    blocks the person's prompt while it runs.
+94. **It speaks once per distinct receipt.** A Stop hook fires after every
+    reply, and the same unreviewed list after each one is wallpaper. A digest
+    of the last receipt shown is kept; the mark does not move, so nothing is
+    lost, only not repeated. `seen` clears it, so the next report speaks even
+    when it is an all-clear.
+95. **Commands find their project instead of trusting the current folder.**
+    Claude Code runs hooks in whatever folder Claude last moved into, and the
+    commands Claude runs start there too — without `CLAUDE_PROJECT_DIR`, which
+    only hooks receive. After `cd web && npm install`, the next receipt would
+    have been a first look at `web/`, with Claude's copy left where the prompt
+    hook never reads. Inside a session the root is now the nearest folder with
+    notes or a repository, never above the session's project; elsewhere, the
+    nearest folder with notes, never climbing out of a repository — so a
+    git-tracked home folder is never scanned. Known limits: a worktree Claude
+    enters mid-session gets its receipt, but Claude's copy lands where the
+    prompt hook does not read; a worktree's first session is absorbed into its
+    first look; the prompt hook needs `sh`, so not Windows.
+96. **What was verified, and what was not.** A simulation fed the hooks Claude
+    Code's documented stdin payloads and applied its documented stdout parsing:
+    shown once, handed to Claude once, silent on repeat, cleared by `seen`.
+    Claude Code 2.1.266, run headless on a test project, loaded the project's
+    hooks and ran the prompt hook, then stopped at "Not logged in" before any
+    reply. The desktop app starts Claude Code with project settings enabled, so
+    the hooks run there. **Not yet seen: the receipt rendered in a live session,
+    and Claude answering "explain #1" from the copy.** This repository's own
+    hooks now use the new form, so its next session is that test.
 

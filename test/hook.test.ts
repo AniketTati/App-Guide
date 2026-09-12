@@ -1,6 +1,8 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import { mkdtemp, readFile, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { join } from 'node:path'
 import { ensureIgnored, installHook, isAppguideCommand } from '../src/hook/install.js'
 import { readConfig, writeConfig } from '../src/config.js'
@@ -87,6 +89,7 @@ describe('removing and switching, whatever voice it was installed in', () => {
     expect(isAppguideCommand('npx --yes github:AniketTati/App-Guide since --plain')).toBe(true)
     expect(isAppguideCommand('npx appguide since')).toBe(true)
     expect(isAppguideCommand('node dist/cli.js since')).toBe(true)
+    expect(isAppguideCommand('node "${CLAUDE_PROJECT_DIR:-.}/dist/cli.js" since --hook')).toBe(true)
     expect(isAppguideCommand('make lint')).toBe(false)
   })
 })
@@ -115,6 +118,41 @@ describe('remembering how it was installed', () => {
     await writeConfig(d, { plain: true, run: 'npx --yes github:AniketTati/App-Guide' })
     expect(await readConfig(d)).toEqual({ plain: true, run: 'npx --yes github:AniketTati/App-Guide' })
     expect(JSON.parse(await readFile(join(d, '.appguide/config.json'), 'utf8')).future).toBe(1)
+  })
+})
+
+describe('handing the receipt to Claude', () => {
+  const sh = promisify(execFile)
+
+  it('installs a prompt hook beside the stop hook, with timeouts', async () => {
+    const d = await dir()
+    await installHook(d, false, true)
+    const s = await settings(d)
+    expect(s.hooks.Stop[0].hooks[0].command).toContain('since --hook --plain')
+    expect(s.hooks.Stop[0].hooks[0].timeout).toBeGreaterThanOrEqual(60)
+    expect(s.hooks.UserPromptSubmit[0].hooks[0].command).toContain('.appguide/pending')
+    expect(s.hooks.UserPromptSubmit[0].hooks[0].timeout).toBeLessThanOrEqual(30)
+  })
+
+  it('the prompt hook prints a pending report once, then nothing, with no network', async () => {
+    const d = await dir()
+    await installHook(d, false, false)
+    const command: string = (await settings(d)).hooks.UserPromptSubmit[0].hooks[0].command
+    expect(command).not.toContain('npx')
+    await mkdir(join(d, '.appguide'), { recursive: true })
+    await writeFile(join(d, '.appguide/pending'), 'REPORT #1', 'utf8')
+    const env = { ...process.env, CLAUDE_PROJECT_DIR: d }
+    expect((await sh('sh', ['-c', command], { env, cwd: tmpdir() })).stdout).toBe('REPORT #1')
+    expect((await sh('sh', ['-c', command], { env, cwd: tmpdir() })).stdout).toBe('')
+  })
+
+  it('removes both hooks on uninstall', async () => {
+    const d = await dir()
+    await installHook(d, false, true)
+    await installHook(d, true, false)
+    const s = await settings(d)
+    expect(s.hooks?.Stop).toBeUndefined()
+    expect(s.hooks?.UserPromptSubmit).toBeUndefined()
   })
 })
 

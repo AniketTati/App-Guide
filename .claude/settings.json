@@ -6,7 +6,19 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node dist/cli.js since"
+            "command": "node \"${CLAUDE_PROJECT_DIR:-.}/dist/cli.js\" since --hook",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'f=\"${CLAUDE_PROJECT_DIR:-.}/.appguide/pending\"; if [ -f \"$f\" ]; then cat \"$f\"; rm -f \"$f\"; fi'",
+            "timeout": 10
           }
         ]
       }

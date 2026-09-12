@@ -7,9 +7,11 @@ import { read as readMark } from './model/snapshot.js'
 import { renderTerminal } from './render/terminal.js'
 import { setColor } from './render/ansi.js'
 import { ensureIgnored, installHook, runBase } from './hook/install.js'
+import { clearDelivery, deliverFromStop } from './hook/deliver.js'
 import { renderMarkdown } from './render/markdown.js'
 import { ask } from './render/ask.js'
 import { readConfig, writeConfig } from './config.js'
+import { findRoot } from './root.js'
 
 /** Bumped whenever the --json shape changes in a way a consumer would notice. */
 export const JSON_SCHEMA_VERSION = 1
@@ -39,6 +41,7 @@ Options
   --json         emit the raw delta
   --markdown     for a PR comment or Slack
   --plain        everyday language instead of jargon
+  --hook         output for the installed Claude Code hook
   --no-color     plain text
   --help, -h     this
   --version, -v  version
@@ -58,6 +61,7 @@ export async function main(argv: string[]): Promise<number> {
         uninstall: { type: 'boolean', default: false },
         markdown: { type: 'boolean', default: false },
         plain: { type: 'boolean', default: false },
+        hook: { type: 'boolean', default: false },
         help: { type: 'boolean', short: 'h', default: false },
         version: { type: 'boolean', short: 'v', default: false },
       },
@@ -77,11 +81,24 @@ export async function main(argv: string[]): Promise<number> {
     return 0
   }
 
+  // Not process.cwd(): inside Claude Code that is wherever Claude last cd'd to.
+  const root = await findRoot(process.cwd())
   const command = positionals[0] ?? 'since'
   switch (command) {
     case 'since': {
-      const voice = values.plain || (await readConfig(process.cwd())).plain ? 'plain' as const : 'technical' as const
-      const report = await run({ root: process.cwd(), mark: values.mark, voice })
+      const voice = values.plain || (await readConfig(root)).plain ? 'plain' as const : 'technical' as const
+      const report = await run({ root, mark: values.mark, voice })
+      if (values.hook) {
+        // Inside Claude Code: a JSON systemMessage for the person, a copy left
+        // for Claude, and nothing else on stdout. Plain text from a Stop hook
+        // goes to the debug log and is shown to no one.
+        setColor(false)
+        const command = await commandFor(root)
+        const receipt = renderTerminal(report, { hiddenCount: report.totalChanges, voice, command })
+        const json = await deliverFromStop(root, report, receipt, command)
+        if (json !== '') process.stdout.write(json)
+        return 0
+      }
       if (values.json) {
         process.stdout.write(`${JSON.stringify({ schema: JSON_SCHEMA_VERSION, ...report }, null, 2)}\n`)
         return 0
@@ -92,12 +109,13 @@ export async function main(argv: string[]): Promise<number> {
       }
       if (values['no-color']) setColor(false)
       const shown = values.all ? { ...report, also: [...report.top, ...report.also], top: [] } : report
-      process.stdout.write(renderTerminal(shown, { hiddenCount: report.totalChanges, voice, command: await commandFor(process.cwd()) }))
+      process.stdout.write(renderTerminal(shown, { hiddenCount: report.totalChanges, voice, command: await commandFor(root) }))
       return 0
     }
     case 'seen': {
-      await run({ root: process.cwd(), mark: true })
-      const plainVoice = values.plain || (await readConfig(process.cwd())).plain
+      await run({ root, mark: true })
+      await clearDelivery(root)
+      const plainVoice = values.plain || (await readConfig(root)).plain
       process.stdout.write(plainVoice
         ? "Noted. The next report will only show what changes from here.\n"
         : 'mark advanced\n')
@@ -109,8 +127,8 @@ export async function main(argv: string[]): Promise<number> {
         process.stderr.write('which one? e.g. appguide ask 1\n')
         return 2
       }
-      const askVoice = values.plain || (await readConfig(process.cwd())).plain ? 'plain' as const : 'technical' as const
-      const report = await run({ root: process.cwd(), mark: false, voice: askVoice })
+      const askVoice = values.plain || (await readConfig(root)).plain ? 'plain' as const : 'technical' as const
+      const report = await run({ root, mark: false, voice: askVoice })
       const prompt = ask(report, which, askVoice)
       if (prompt === null) {
         const n = report.top.length + report.also.length
@@ -121,9 +139,9 @@ export async function main(argv: string[]): Promise<number> {
       return 0
     }
     case 'init-hook': {
-      const r = await installHook(process.cwd(), values.uninstall, values.plain)
+      const r = await installHook(root, values.uninstall, values.plain)
       if (r.outcome === 'removed' || r.outcome === 'not-installed') {
-        const plainVoice = values.plain || (await readConfig(process.cwd())).plain
+        const plainVoice = values.plain || (await readConfig(root)).plain
         process.stdout.write(r.outcome === 'removed'
           ? (plainVoice
               ? "Removed. It won't run when your agent finishes any more.\nMy notes are still in .appguide/ — delete that folder if you like.\n"
@@ -143,12 +161,12 @@ export async function main(argv: string[]): Promise<number> {
       // Take the first look now. Otherwise the reader's first session prints
       // "nothing to compare yet" and only the second is useful — which, for
       // someone deciding whether this is worth keeping, is one session too many.
-      const hadMark = (await readMark(process.cwd())).ok
-      if (!hadMark) await run({ root: process.cwd(), mark: true })
+      const hadMark = (await readMark(root)).ok
+      if (!hadMark) await run({ root, mark: true })
       // Record how it was installed, so every instruction printed later names a
       // command that actually runs — and the voice, so every command inherits it.
-      await writeConfig(process.cwd(), { plain: values.plain, run: r.base })
-      const ignored = await ensureIgnored(process.cwd())
+      await writeConfig(root, { plain: values.plain, run: r.base })
+      const ignored = await ensureIgnored(root)
       const note = ignored !== 'added' ? '' : values.plain
         ? '\nI added .appguide/ to your .gitignore, so my notes stay out of your code.'
         : '\nadded .appguide/ to .gitignore'

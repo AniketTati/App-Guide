@@ -6,14 +6,15 @@ here and nowhere else. Every other document is a detail this one points at.
 If this file and another document disagree, **this file is right and the other
 one is a bug.** Fix it in the same commit that you noticed it.
 
-Last updated: 2026-09-12 (G1 measured, installable from GitHub)
+Last updated: 2026-09-12 (receipt delivery rebuilt for Claude Code; not yet seen live)
 
 ---
 
 ## 1. Status
 
-Nothing is built. **Before any code is written, verify the competitors** — see
-Step 0. That is the cheapest and most decisive action available.
+v0 is built and installable from GitHub. What is unproven is no longer whether
+it can be built, but whether a person sees the receipt and reads it — first the
+in-session display below, then G3 and the Step 1 evidence test.
 
 | Stage | State | Gate to leave it |
 |---|---|---|
@@ -42,9 +43,15 @@ Step 0. That is the cheapest and most decisive action available.
   being redefined after the data came in. Reproduce: `pnpm bench:recall`.
   Caveat: small idiomatic apps, not production code.
 - **Installable from GitHub, not published to npm.** `npx --yes
-  github:AniketTati/App-Guide` works end to end, including the non-developer
-  install; about 15s the first time and 2.5s per hook run after. npm publish
-  needs the owner's login and is a deliberate, irreversible step.
+  github:AniketTati/App-Guide` installs, including the non-developer install;
+  about 15s the first time and 2.5s per hook run after. npm publish needs the
+  owner's login and is a deliberate, irreversible step.
+- **Until 2026-09-12 no one inside Claude Code could see a receipt.** A Stop
+  hook's plain output goes to a debug log. The receipt now arrives as a
+  `systemMessage` for the person and, with their next message, as context for
+  Claude ([decisions.md](decisions.md) §18). The contract is tested and Claude
+  Code was seen loading the hooks, but **no one has yet seen the receipt
+  appear in a live session**. That is the next check.
 
 ## 2. Document map
 

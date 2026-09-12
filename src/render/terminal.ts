@@ -195,10 +195,13 @@ function entry(change: Change, cols: number, showEvidence: boolean, voice: Voice
   const wide = cols - gutter - 1
   const where = `${change.fact.where.file}:${change.fact.where.line}`
 
+  // With nothing to corroborate — an export has no denominator — the wrapped
+  // form's second line was a row of spaces: invisible, but counted against the
+  // line budget, so half the list was hidden behind blank lines.
   const lines = roomy
     ? [`${head}${subj} ${dim(right)}`.trimEnd()]
     : [...wrap(full_subject, wide).map((l, i) => (i === 0 ? `${head}${l}` : `${' '.repeat(gutter)}${l}`)),
-       `${' '.repeat(gutter)}${dim(truncate(full, wide))}`]
+       ...(full === '' ? [] : [`${' '.repeat(gutter)}${dim(truncate(full, wide))}`])]
 
   if (showEvidence) {
     const note = roomy && fits ? secondary(change, voice) : ''

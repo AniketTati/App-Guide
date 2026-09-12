@@ -242,6 +242,12 @@ function entry(change: Change, cols: number, showEvidence: boolean, voice: Voice
 function corroboration(change: Change, voice: Voice = 'technical'): { full: string; ratio: string; property: string } {
   const w = words(voice)
   const d = change.denominator
+  if (d !== undefined && d.total === 1 && d.matching === 1) {
+    // "1 of 1" is arithmetically true and reads like a glitch. When the whole
+    // population is this one thing, say so in words — the same checkable count.
+    const only = onlyOne(change.fact.kind, voice)
+    return { full: only, ratio: only, property: only }
+  }
   if (d !== undefined) {
     const prop = voice === 'plain' ? plainProperty(d.property) : d.property
     const noun = voice === 'plain' ? plainNoun(d.noun) : d.noun
@@ -288,6 +294,19 @@ function wrap(text: string, max: number): string[] {
   }
   if (line !== '') out.push(line)
   return out.flatMap((l) => (width(l) <= max ? [l] : [truncate(l, max)]))
+}
+
+export function onlyOne(kind: Fact['kind'], voice: Voice): string {
+  // Kept under 25 columns: the right-hand column is that narrow at 60, and a
+  // phrase that has to be truncated breaks the rule it exists to honour.
+  if (voice === 'plain') {
+    if (kind === 'external') return 'the only outside service'
+    if (kind === 'write') return 'the only one changing it'
+    return 'the only one of its kind'
+  }
+  if (kind === 'external') return 'only external host'
+  if (kind === 'write') return 'only writer'
+  return 'only one of its kind'
 }
 
 const seeAll = (n: number, voice: Voice): string => voice === 'plain'

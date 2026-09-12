@@ -1,9 +1,10 @@
 # Build steps
 
-> **Status: steps 1–20 implemented, 106 tests, not published.** What is *not*
-> done is the evidence: G1 route recall has never been measured against a
-> hand-labelled sample, and the 4-day evidence test in [PLAN.md](../PLAN.md) was
-> skipped in favour of building. Both are still the cheapest ways to be wrong.
+> **Status: steps 1–20 implemented, installable from GitHub.** G1 was measured
+> against a runtime oracle and fails as written — 83.2% recall — with 100%
+> precision and zero silent misses ([decisions.md](../decisions.md) §17). The
+> 4-day evidence test in [PLAN.md](../PLAN.md) is still unrun, and is still the
+> cheapest way to be wrong.
 
 Numbered implementation steps for v0, each with a definition of done. Status
 lives in [PLAN.md](../PLAN.md); the product surface in [v0-spec.md](v0-spec.md).

@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeAll } from 'vitest'
-import { mkdtemp, mkdir, writeFile, readFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { run } from '../src/run.js'
@@ -202,10 +202,18 @@ describe('install honesty', () => {
   })
 
   it('verifies successfully when the command really runs', async () => {
-    // In this repo the hook points at the local build.
-    const r = await installHook(process.cwd(), false, false)
-    expect(r.verified).toBe(true)
-    await installHook(process.cwd(), true, false)
+    // In this repo the hook points at the local build. Restore the real
+    // settings afterwards: installing into the working repo and uninstalling
+    // left .claude/settings.json modified after every test run.
+    const settingsPath = join(process.cwd(), '.claude/settings.json')
+    const original = await readFile(settingsPath, 'utf8').catch(() => null)
+    try {
+      const r = await installHook(process.cwd(), false, false)
+      expect(r.verified).toBe(true)
+    } finally {
+      if (original === null) await rm(settingsPath, { force: true })
+      else await writeFile(settingsPath, original, 'utf8')
+    }
   })
 })
 
@@ -229,3 +237,27 @@ describe('the answer is never clipped', () => {
     }
   })
 })
+
+describe('the first receipt a non-developer sees', () => {
+  it('never prints the glitch-looking "1 of 1"', async () => {
+    // It appeared on the very first receipt of the end-to-end install: one new
+    // call to Stripe, in an app that called nothing else, read "1 of 1 outside
+    // services" — true, checkable, and indistinguishable from a bug.
+    const dir = await mkdtemp(join(tmpdir(), 'plain-one-'))
+    await mkdir(join(dir, 'src'), { recursive: true })
+    await writeFile(join(dir, 'package.json'), '{"dependencies":{"express":"^4.0.0"}}')
+    await writeFile(join(dir, 'src/a.ts'), 'export const a = 1')
+    await run({ root: dir, mark: true })
+    await writeFile(join(dir, 'src/a.ts'), "export async function pay() { await fetch('https://api.stripe.com/v1/x') }")
+    for (const voice of ['plain', 'technical'] as const) {
+      const report = await run({ root: dir, mark: false, voice })
+      const out = renderTerminal(report, { columns: 78, voice })
+      expect(out, voice).toContain('api.stripe.com')
+      expect(out, voice).not.toMatch(/\b1 of 1\b/)
+      expect(ask(report, 1, voice) ?? '', voice).not.toMatch(/\b1 of 1\b/)
+    }
+    expect(renderTerminal(await run({ root: dir, mark: false, voice: 'plain' }), { columns: 78, voice: 'plain' }))
+      .toContain('the only outside service')
+  })
+})
+

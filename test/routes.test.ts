@@ -101,3 +101,52 @@ describe('supported frameworks are not also declared blind spots', () => {
     expect(facts.filter((f) => f.kind === 'gap' && f.reason === 'unsupported-framework' && (f.subject === 'express' || f.subject === 'next'))).toHaveLength(0)
   })
 })
+
+describe("express — what real apps do (from Express's own examples)", () => {
+  it('does not mistake app.get(setting) for a route', () => {
+    // One-argument app.get reads a setting. `app.get('env')` became GET /env.
+    const out = routes(scan({ 'src/a.js': "const app = express(); if (app.get('env') === 'test') {}; app.get('/real', h)" }, ['express']))
+    expect(out.map((r) => r.kind === 'route' && r.path)).toEqual(['/real'])
+  })
+
+  it('reports routes registered with a computed method instead of staying silent', () => {
+    const out = scan({ 'lib/boot.js': 'const app = express(); for (const [method, url] of pairs) app[method](url, handler)' }, ['express'])
+    expect(routes(out)).toHaveLength(0)
+    expect(gaps(out).map((g) => g.kind === 'gap' && g.reason)).toContain('dynamic-dispatch')
+  })
+
+  it('follows this inside a helper hung off the app', () => {
+    const out = scan({ 'index.js': `
+      var app = module.exports = express()
+      app.resource = function (path, obj) {
+        this.get('/health', obj.ok)
+        this.get(path + '/:id', obj.show)
+      }
+    ` }, ['express'])
+    expect(routes(out).map((r) => r.kind === 'route' && r.path)).toEqual(['/health'])
+    expect(gaps(out).map((g) => g.kind === 'gap' && g.reason)).toContain('computed-route-path')
+  })
+
+  it('does not treat this.get in an unrelated class as a route', () => {
+    expect(routes(scan({ 'src/cache.js': 'class Cache { read(k) { return this.get(k, fallback) } }' }, ['express']))).toHaveLength(0)
+  })
+
+  it('resolves a router mounted from another file with an inline require', () => {
+    const out = routes(scan({
+      'index.js': "const app = express(); app.use('/api/v1', require('./controllers/api_v1'))",
+      'controllers/api_v1.js': "const r = express.Router(); r.get('/users', h); module.exports = r",
+    }, ['express']))
+    expect(out[0]).toMatchObject({ path: '/api/v1/users' })
+    expect(out[0]).not.toHaveProperty('scope')
+  })
+
+  it('resolves a router mounted through a binding, including nesting', () => {
+    const out = routes(scan({
+      'app.ts': "import api from './api'; const app = express(); app.use('/api', api)",
+      'api.ts': "import users from './users.js'; const router = Router(); router.use('/users', users); export default router",
+      'users.ts': "const router = Router(); router.get('/:id', h); export default router",
+    }, ['express']))
+    expect(out.map((r) => r.kind === 'route' && r.path)).toContain('/api/users/:id')
+  })
+})
+

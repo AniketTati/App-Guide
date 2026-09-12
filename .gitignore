@@ -47,3 +47,6 @@ venv/
 # .appguide/ holds the local session mark. It is deliberately NOT committed:
 # a mark is "the last time you looked", which is per-machine. An earlier design
 # committed a blueprint here; that design is gone (docs/decisions.md #49).
+
+# recall benchmark corpus (bench/express/run.sh)
+.bench-work/

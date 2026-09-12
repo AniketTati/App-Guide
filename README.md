@@ -9,8 +9,9 @@ database writes — plus an explicit list of what it could not see.
 Deterministic. Local. No model, no API key, no account.
 
 > **Status: works, installable from GitHub, not yet on npm.** The commands
-> below run straight from this repository. The first run takes a few seconds
-> while it downloads; after that it's about a second. Plan and reasoning:
+> below run straight from this repository. The very first run takes about 15
+> seconds while it downloads and builds; after that each run takes about 2.5
+> seconds, most of it a check against GitHub. Plan and reasoning:
 > **[docs/PLAN.md](docs/PLAN.md)**.
 
 ## What it looks like
@@ -106,6 +107,25 @@ alarms.
 And firstness self-extinguishes: the second time `billing/` writes to `users`, it
 is no longer first and drops out on its own. No suppression list, no rules file,
 nothing to configure.
+
+## How accurate is it
+
+Measured against what Express *actually registers* when an app runs, across 23
+of Express's own example apps — 107 routes:
+
+| | |
+|---|---|
+| Routes found | 89 of 107 (83%) |
+| Routes reported that were real | 55 of 55 (100%) |
+| Routes written out in the code that were found | 89 of 89 (100%) |
+| Missed routes it stayed silent about | **0** |
+
+All 18 missed routes are registered dynamically — a method or path read from
+data while the app runs — which no static reader can list. Every one was in an
+app where the report said routes existed that it couldn't list.
+
+These are small, idiomatic example apps, not production codebases; expect real
+apps to be messier. Reproduce it with `pnpm bench:recall`.
 
 ## What it will not do
 

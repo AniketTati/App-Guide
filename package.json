@@ -31,7 +31,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "prepare": "tsup"
+    "prepare": "tsup",
+    "bench:recall": "bash bench/express/run.sh"
   },
   "dependencies": {
     "ts-morph": "^24.0.0"

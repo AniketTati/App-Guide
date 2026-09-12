@@ -440,3 +440,37 @@ it is defensible.
     Fastify routes are not read (declared as blind spots); Next middleware
     matchers are not resolved; workspace member manifests are not walked, only
     imports; `export * from` is invisible; exports churn when a file is renamed.
+
+## 17. Measuring recall, and getting it to non-developers
+
+87. **Route recall was measured against a runtime oracle, not hand labels.**
+    Express's own 25 example apps were loaded with registration instrumented, so
+    the ground truth is every route Express actually registered — 107 routes in
+    the 23 apps that load (2 need Redis or an uninstalled module). Result: 89 of
+    107 found exactly (83.2%), 55 of 55 reported routes real (100%), every route
+    written out literally in the code found, and **0 routes missed silently**.
+88. **G1 is recorded as failed and left failed.** 83.2% is below its 90% bar.
+    All 18 misses are routes registered dynamically — a method or path read from
+    data while the app runs — which no static reader can list, and every one was
+    in an app where a gap said so. That is the product's real promise holding.
+    But a gate rewritten to pass after the data is in is not a gate, so the
+    number stands as a failure with the breakdown beside it.
+89. **The first measurement read 45.5% and was mostly the harness.** macOS ships
+    no GNU `timeout`, so the oracle loaded 0 of 25 apps behind a suppressed
+    error. Express 5 expands `app.all` into 35 per-method routes at runtime,
+    turning one route into 35 misses. And `vhost()` and prefix-less `use()` hid
+    real routes from an oracle that walked only the exported app. Two of the
+    misses were genuine extractor defects: one-argument `app.get('env')` read as
+    a route, and routes registered through `app[method](…)` or a helper using
+    `this` produced no gap at all — silence with no basis. Telling measurement
+    bugs from product bugs meant reading every miss.
+90. **It is installable today without claiming an npm name.** npx runs a package
+    straight from a public GitHub repo, which is reversible where publishing is
+    not. The non-developer install was run end to end through it: verified the
+    install, took the first look, and the next agent session produced a real
+    receipt. About 15s the first time, 2.5s per hook run after — most of that
+    is the network check against GitHub, not the tool.
+91. **The first session now produces a real receipt.** Installing previously
+    took no snapshot, so the first session said "nothing to compare yet" and
+    only the second was useful. `init-hook` takes the first look itself.
+

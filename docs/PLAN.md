@@ -6,7 +6,7 @@ here and nowhere else. Every other document is a detail this one points at.
 If this file and another document disagree, **this file is right and the other
 one is a bug.** Fix it in the same commit that you noticed it.
 
-Last updated: 2026-09-09 (v0 built — 106 tests, unpublished)
+Last updated: 2026-09-12 (G1 measured, installable from GitHub)
 
 ---
 
@@ -19,7 +19,7 @@ Step 0. That is the cheapest and most decisive action available.
 |---|---|---|
 | Documentation | ✅ done | plan, problem, decisions, spec written and linked |
 | **Step 0** — verify competitors | ✅ **passed** | neither produces the inventory signals ([decisions.md](decisions.md) §15) |
-| **v0 — the receipt** | 🟡 **built, unproven** | G1–G4 · steps in [notes/build-steps.md](notes/build-steps.md) |
+| **v0 — the receipt** | 🟡 **built, G1 measured and failing** | G1–G4 · steps in [notes/build-steps.md](notes/build-steps.md) |
 | v0.5 — GitHub Action + markdown | 🟡 written, never run in CI | in someone else's CI |
 | v1 — MCP server | ⬜ not started | someone asks for it |
 | v2 — rules, frozen on first run | ⬜ not started | findings people act on |
@@ -34,9 +34,17 @@ Step 0. That is the cheapest and most decisive action available.
 - **Step 1, the 4-day evidence test, was never run.** Building came first. It is
   still the cheapest thing that could kill this, and it is now cheaper than
   before because the tool can generate the deltas itself.
-- **G1 (route recall ≥90% against hand-labelled samples) has not been measured.**
-  Detectors are tested against constructed inputs, which is not the same claim.
-- **Not published to npm.** The name is claimed as available, not taken.
+- **G1 fails as written: 83.2% route recall against a ≥90% gate.** Measured
+  against what Express registers at runtime across 23 of its own example apps,
+  not hand-labelled samples. Precision is 100% and **0 misses were silent** —
+  all 18 misses are dynamically registered routes, each disclosed by a gap.
+  The promise holds where the gate does not; the gate stays failed rather than
+  being redefined after the data came in. Reproduce: `pnpm bench:recall`.
+  Caveat: small idiomatic apps, not production code.
+- **Installable from GitHub, not published to npm.** `npx --yes
+  github:AniketTati/App-Guide` works end to end, including the non-developer
+  install; about 15s the first time and 2.5s per hook run after. npm publish
+  needs the owner's login and is a deliberate, irreversible step.
 
 ## 2. Document map
 

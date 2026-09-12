@@ -37,6 +37,8 @@ function row(c: Change, w: ReturnType<typeof words>): string {
   const d = c.denominator
   const evidence = d === undefined
     ? `\`${c.fact.where.file}:${c.fact.where.line}\``
-    : `${d.property} · **${d.matching} of ${d.total}** ${d.noun} — \`${c.fact.where.file}:${c.fact.where.line}\``
+    : d.total === 1 && d.matching === 1
+      ? `${d.property} · **the only one** — \`${c.fact.where.file}:${c.fact.where.line}\``
+      : `${d.property} · **${d.matching} of ${d.total}** ${d.noun} — \`${c.fact.where.file}:${c.fact.where.line}\``
   return `| ${w.kind(c.fact)} | ${c.type === 'added' ? '' : `${c.type} `}\`${subject(c.fact)}\` | ${evidence} |`
 }

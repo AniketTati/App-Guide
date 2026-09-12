@@ -27,7 +27,9 @@ export function ask(report: Report, index: number, voice: Voice = 'technical'): 
 
   if (change.denominator !== undefined) {
     const d = change.denominator
-    lines.push(`  ${d.property} — ${d.matching} of ${d.total} ${d.noun}`)
+    lines.push(d.total === 1 && d.matching === 1
+      ? `  ${d.property} — the only one of its kind in the codebase`
+      : `  ${d.property} — ${d.matching} of ${d.total} ${d.noun}`)
   }
   lines.push(...context(change))
   lines.push(

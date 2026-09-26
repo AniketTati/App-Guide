@@ -14,4 +14,7 @@ codesign --force --deep --sign - "$APP"
 mkdir -p "$HOME/Applications"
 rm -rf "$HOME/Applications/App Guide.app"
 cp -R "$APP" "$HOME/Applications/"
+# The build copy goes once installed: left here, Spotlight and Launchpad list a
+# second "App Guide" beside the real one.
+rm -rf release
 echo "installed: $HOME/Applications/App Guide.app"

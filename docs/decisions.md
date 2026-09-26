@@ -648,3 +648,16 @@ it is defensible.
      longer does. The permission table still matches 252 of 252. The wording
      follows: *no check found*, and *I found nothing that stops…*, never
      *anyone can…*.
+111. **Home and Check read git and the tracker, never write them.** The engine
+     lists every worktree with work not on main — the checkout included when
+     it is on another branch; a worktree nested inside a checkout is never
+     counted as that checkout's change — and checks one against its
+     merge-base: the structural difference, uncommitted work included; the
+     tasks its commits name, from the branch's own tracker, where its worklog
+     is written; the tests it touched; the files it changed that its tasks do
+     not name; and the files other work in flight also changed. Main's side is
+     read from `git archive` into a scratch folder and cached by commit. On
+     draft-legal it found S2 waiting on the PM, three pieces of work in
+     flight, and two files the checkout's branch shares with an uncommitted
+     worktree — the collision the PM asked to see before merging. A first
+     Check takes ~9s while main's commit is read and cached, ~3.6s after.

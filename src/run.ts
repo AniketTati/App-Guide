@@ -21,8 +21,25 @@ export interface RunOptions {
   voice?: 'technical' | 'plain'
 }
 
-export async function run({ root, mark, voice = 'technical' }: RunOptions): Promise<Report> {
-  const scan = await scanLibraries(root)
+export interface ExtractOptions {
+  /** 'installed' reads each package's version from node_modules, catching a
+   *  lockfile-only bump. 'declared' uses the manifest's range, so that two
+   *  commits read from git — which have no node_modules — compare like with
+   *  like. */
+  versions?: 'installed' | 'declared'
+}
+
+export interface Extraction {
+  facts: Fact[]
+  /** How many JS/TS files were read. */
+  files: number
+  /** Workspace members, longest path first. */
+  workspace: { dir: string; name: string }[]
+}
+
+/** Read the product at `root` into facts. Writes nothing. */
+export async function extract(root: string, { versions = 'installed' }: ExtractOptions = {}): Promise<Extraction> {
+  const scan = await scanLibraries(root, { versions })
   const { parsed, gaps: parseGaps } = parseAll(scan.files)
   // Imported counts as present. In a workspace the root package.json declares
   // neither the framework nor the ORM, and gating on it alone made routes and
@@ -38,6 +55,11 @@ export async function run({ root, mark, voice = 'technical' }: RunOptions): Prom
     ...scanData(product, present),
     ...scanExports(product),
   ]
+  return { facts, files: scan.files.length, workspace: scan.workspace }
+}
+
+export async function run({ root, mark, voice = 'technical' }: RunOptions): Promise<Report> {
+  const { facts, files } = await extract(root)
   const gaps = facts.filter((f): f is Extract<Fact, { kind: 'gap' }> => f.kind === 'gap')
 
   const previous = await snapshot.read(root)
@@ -56,7 +78,7 @@ export async function run({ root, mark, voice = 'technical' }: RunOptions): Prom
         where: { file: '.appguide/mark', line: 1 },
       }]
 
-  const report = toReport(changes, [...gaps, ...marker], { files: scan.files.length }, facts, !previous.ok, voice)
+  const report = toReport(changes, [...gaps, ...marker], { files }, facts, !previous.ok, voice)
 
   // First run establishes the mark and reports nothing: existing state is
   // frozen, so `since` only ever speaks about what is new. Without this the

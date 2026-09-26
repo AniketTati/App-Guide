@@ -59,7 +59,9 @@ export interface LibraryScan {
 
 interface Declared { range: string; dev: boolean; manifest: string; dir: string }
 
-export async function scanLibraries(root: string): Promise<LibraryScan> {
+export async function scanLibraries(root: string, { versions = 'installed' }: { versions?: 'installed' | 'declared' } = {}): Promise<LibraryScan> {
+  const versionOf = async (dir: string, name: string): Promise<string | null> =>
+    versions === 'installed' ? installedVersion(root, dir, name) : null
   const { files, gaps, manifests, configs, unread } = await discover(root)
   const aliases = await aliasPrefixes(root, configs)
   const manifest = await readManifest(root)
@@ -129,7 +131,7 @@ export async function scanLibraries(root: string): Promise<LibraryScan> {
       // The installed version, not the declared range: a lockfile-only bump
       // inside `^2.6.7` is exactly the supply-chain event worth catching, and
       // a range would report it as no change at all.
-      version: (await installedVersion(root, known?.dir ?? '', name)) ?? known?.range ?? 'unknown',
+      version: (await versionOf(known?.dir ?? '', name)) ?? known?.range ?? 'unknown',
       direct: known !== undefined,
       importers: list.sort(),
       where: { file: known?.manifest ?? 'package.json', line: 1 },
@@ -151,7 +153,7 @@ export async function scanLibraries(root: string): Promise<LibraryScan> {
     if (importers.has(name)) continue
     facts.push({
       kind: 'library', name,
-      version: (await installedVersion(root, meta.dir, name)) ?? meta.range,
+      version: (await versionOf(meta.dir, name)) ?? meta.range,
       direct: true, importers: [], where: { file: meta.manifest, line: 1 },
     })
   }

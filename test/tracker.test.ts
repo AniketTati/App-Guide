@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseTasks, taskIdsOf } from '../src/tracker/tasks.js'
+import { parseTasks, taskIdsOf, WAITING } from '../src/tracker/tasks.js'
 
 const TRACKER = `# Fix Tracker
 
@@ -87,5 +87,67 @@ describe('what a task names', () => {
 `)
     expect(task!.mentions).toEqual(['FocusedReviewDrawer.tsx', 'review-decision.integration.test.ts', 'review-queue.ts'])
     expect(task!.text.split('\n')[0]).toBe('- `FocusedReviewDrawer.tsx` now records a decision; `review-queue.ts` keeps the order.')
+  })
+})
+
+describe('the shapes a long-running tracker grows into', () => {
+  // Every shape below dropped a task before: 56 of one real tracker's 126
+  // list entries, two of them waiting on the PM.
+  const LATER = `# Tracker
+
+## P1 — The export button does nothing
+
+- **Status:** BLOCKED (waiting on the vendor)
+- **Severity:** High (every customer)
+
+## Third round
+
+- **Q2 — Import keeps the old column order. — DONE** (VERIFY-PENDING → DONE after the live check below).
+- **Q30 — \`export.csv\` drops the last row (Low). — VERIFY-PENDING.** Found in the Q3 review.
+  - Check it on a file with a trailing newline.
+- **Q35 — Two settings pages load slowly (Low-Medium; High once measured). — DONE.** Found while planning Q31.
+- **Q54 — The weekly digest counts drafts (Medium). — BLOCKED (needs a decision).** Found while reading the digest.
+
+## Closing summary
+
+### What's left
+
+- **VERIFY-PENDING:**
+  - **Q30:** on a real export, the last row is there.
+- **BLOCKED on your decision:** Q54. Leaving drafts out changes last month's numbers.
+- **BLOCKED on the vendor:** P1.
+
+### What to review first
+
+- **Q35:** the settings pages.
+`
+  const tasks = parseTasks('TRACKER.md', LATER)
+  const byId = new Map(tasks.map((t) => [t.id, t]))
+
+  it('reads an entry whose bold is followed by more of it', () => {
+    expect(tasks.map((t) => [t.id, t.status])).toEqual([
+      ['P1', 'BLOCKED'], ['Q2', 'DONE'], ['Q30', 'VERIFY-PENDING'], ['Q35', 'DONE'], ['Q54', 'BLOCKED'],
+    ])
+    expect(byId.get('Q30')?.text).toMatch(/^Found in the Q3 review\.\n- Check it on a file/)
+    expect(byId.get('Q2')?.text).toBe('(VERIFY-PENDING → DONE after the live check below).')
+  })
+
+  it('keeps the severity out of the title, and the reason after a status', () => {
+    expect(byId.get('Q30')).toMatchObject({ title: '`export.csv` drops the last row', severity: 'Low' })
+    expect(byId.get('Q35')?.severity).toBe('Low-Medium; High once measured')
+    expect(byId.get('Q54')).toMatchObject({ severity: 'Medium', statusNote: 'needs a decision' })
+    expect(byId.get('P1')).toMatchObject({ severity: 'High (every customer)', statusNote: 'waiting on the vendor' })
+  })
+
+  it("takes the latest word on a task from the tracker's own What's left", () => {
+    expect(byId.get('Q30')?.latest).toBe('on a real export, the last row is there.')
+    expect(byId.get('Q54')?.latest).toBe("Leaving drafts out changes last month's numbers.")
+    // "What to review first" is not what's left.
+    expect(byId.get('Q35')?.latest).toBeNull()
+  })
+
+  it("waits on the PM for exactly what the tracker's summary says is theirs", () => {
+    const waiting = tasks.filter((t) => t.status !== null && WAITING.has(t.status)).map((t) => t.id).sort()
+    expect(waiting).toEqual(['P1', 'Q30', 'Q54'])
   })
 })

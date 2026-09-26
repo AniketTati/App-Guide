@@ -14,6 +14,12 @@ import { join } from 'node:path'
  *
  *   - **DD1 — Liability caps were reasoned about, not measured. — DONE.**
  *     - …
+ *   - **Q30 — `export.csv` drops the last row (Low). — VERIFY-PENDING.** Found in Q3.
+ *   - **Q54 — The digest counts drafts (Medium). — BLOCKED (needs a decision).**
+ *
+ * A list entry's bold can be followed by more text, its status by a reason, and
+ * its title by a severity. The tracker's closing "What's left" section, when it
+ * has one, gives the latest word on each open task.
  */
 export interface Task {
   id: string
@@ -32,16 +38,27 @@ export interface Task {
   mentions: string[]
   /** The task as written, below its first line. */
   text: string
+  /** As written: "Critical (privilege escalation inside an org)", "Low-Medium". */
+  severity: string | null
+  /** What follows the status: "needs a decision" in "BLOCKED (needs a decision)". */
+  statusNote: string | null
+  /** The tracker's latest word on it: its line under "What's left", if any. */
+  latest: string | null
 }
 
 const ID = /[A-Z]{1,3}\d{1,3}/
 // `## S2 — title`, `### P1: title`, `### W3. title`
 const HEADING = new RegExp(`^(#{2,4})\\s+(${ID.source})(?:\\s+[—–-]+|\\s*[:.])\\s+(.+?)\\s*$`)
-const BOLD_ITEM = new RegExp(`^(\\s*)[-*]\\s+\\*\\*(${ID.source})\\s+[—–-]+\\s+(.+?)\\*\\*\\s*$`)
+// The bold can be followed by more of the entry: "— DONE.** Found in the X3 review."
+const BOLD_ITEM = new RegExp(`^(\\s*)[-*]\\s+\\*\\*(${ID.source})\\s+[—–-]+\\s+(.+?)\\*\\*(.*)$`)
 const FIELD = /^[-*]\s+\*\*([^*]+?):\*\*\s*(.*)$/
 const NESTED = /^\s{2,}[-*]\s+(.*)$/
 const NESTED_FIELD = /^\s{2,}[-*]\s+\*\*([^*]+?):\*\*\s*(.*)$/
-const STATUS_WORD = /^([A-Z][A-Z-]{2,})\b/
+const STATUS_WORD = /^([A-Z][A-Z-]{2,})\b(?:\s*\(([^)]*)\))?/
+// "… cap (Medium)." — a severity the title ends with.
+const SEVERITY = /\s*\(((?:Critical|High|Medium|Low)\b[^)]*)\)\.?\s*$/i
+const ONLY_ID = new RegExp(`^${ID.source}$`)
+const LEFT = /^(#{2,6})\s+(?:what['’]s\s+left|what\s+remains|still\s+open|open\s+items)\b/i
 const PATH = /`?((?:[\w.@-]+\/)+[\w.@-]+\.[A-Za-z]{1,5})(?::\d+(?:[-–]\d+)?)?`?/g
 
 export function parseTasks(file: string, text: string): Task[] {
@@ -71,10 +88,47 @@ export function parseTasks(file: string, text: string): Task[] {
         if (l.trim() !== '' && l.length - l.trimStart().length <= indent) break
         end++
       }
-      tasks.push(fromBold(file, i + 1, bold[2]!, bold[3]!, lines.slice(i + 1, end)))
+      const after = bold[4]!.trim()
+      tasks.push(fromBold(file, i + 1, bold[2]!, bold[3]!, [...(after === '' ? [] : [' '.repeat(indent + 2) + after]), ...lines.slice(i + 1, end)]))
     }
   }
+  const notes = latestNotes(lines)
+  for (const t of tasks) t.latest = notes.get(t.id) ?? null
   return tasks
+}
+
+/**
+ * The last "What's left" section's word on each task:
+ *
+ *   - **VERIFY-PENDING:**
+ *     - **S2:** it needs you signed in as a SALES_REP.
+ *   - **BLOCKED on your decision:** X54. Counting chat changes the cap.
+ */
+function latestNotes(lines: readonly string[]): Map<string, string> {
+  let start = -1
+  let level = 0
+  lines.forEach((l, i) => {
+    const m = LEFT.exec(l)
+    if (m !== null) { start = i; level = m[1]!.length }
+  })
+  const out = new Map<string, string>()
+  if (start < 0) return out
+  for (let i = start + 1; i < lines.length; i++) {
+    const l = lines[i]!
+    const h = /^(#{1,6})\s/.exec(l)
+    if (h !== null && h[1]!.length <= level) break
+    const m = /^\s*[-*]\s+\*\*([^*]+?):\*\*\s*(.*)$/.exec(l)
+    if (m === null) continue
+    const label = m[1]!.trim()
+    const rest = m[2]!.trim()
+    if (ONLY_ID.test(label)) {
+      if (rest !== '') out.set(label, rest)
+      continue
+    }
+    const lead = new RegExp(`^((?:${ID.source})(?:\\s*(?:,|and|&)\\s*${ID.source})*)\\s*[.:—–-]\\s*(.+)$`).exec(rest)
+    if (lead !== null) for (const id of lead[1]!.split(/\s*(?:,|and|&)\s*/)) out.set(id, lead[2]!.trim())
+  }
+  return out
 }
 
 function fromHeading(file: string, line: number, id: string, title: string, body: string[]): Task {
@@ -99,24 +153,48 @@ function fromHeading(file: string, line: number, id: string, title: string, body
       if (entry !== null) worklog.push({ label: entry[1]!.trim(), text: entry[2]!.trim() })
     }
   }
-  const status = STATUS_WORD.exec(fields['Status'] ?? '')?.[1] ?? null
+  const status = STATUS_WORD.exec(fields['Status'] ?? '')
   const all = [title, ...body].join('\n')
-  return { id, title: clean(title), status, file, line, fields, criteria, worklog, cites: cites(all), mentions: mentions(all), text: body.join('\n').trim() }
+  return {
+    id, title: clean(title), status: status?.[1] ?? null, file, line, fields, criteria, worklog, cites: cites(all), mentions: mentions(all),
+    text: body.join('\n').trim(), severity: fields['Severity'] ?? null, statusNote: status?.[2]?.trim() ?? null, latest: null,
+  }
 }
 
 function fromBold(file: string, line: number, id: string, inner: string, body: string[]): Task {
   // "Liability caps were reasoned about, not measured. — DONE."
-  const m = /^(.*?)\s+[—–-]+\s+([A-Z][A-Z-]{2,})\.?\s*$/.exec(inner)
-  const title = m === null ? inner : m[1]!
+  // "Chat barely counts toward the cap (Medium). — BLOCKED (needs a decision)."
+  const m = /^(.*?)\s+[—–-]+\s+([A-Z][A-Z-]{2,})(?:\s*\(([^)]*)\))?\.?\s*$/.exec(inner)
+  const whole = m === null ? inner : m[1]!
+  const severity = SEVERITY.exec(whole)
+  const title = severity === null ? whole : whole.slice(0, severity.index)
   const all = [inner, ...body].join('\n')
   return {
     id, title: clean(title), status: m === null ? null : m[2]!, file, line,
-    fields: {}, criteria: [], worklog: [], cites: cites(all), mentions: mentions(all),
+    fields: {}, criteria: listCriteria(body), worklog: [], cites: cites(all), mentions: mentions(all),
     text: dedent(body).join('\n').trim(),
+    severity: severity?.[1] ?? null, statusNote: m?.[3]?.trim() ?? null, latest: null,
   }
 }
 
 const clean = (title: string): string => title.replace(/\.\s*$/, '').trim()
+
+/** In a list entry, the bullets under "Acceptance criteria:" or "Done when:". */
+function listCriteria(body: readonly string[]): string[] {
+  const out: string[] = []
+  let under: number | null = null
+  for (const l of body) {
+    if (l.trim() === '') continue
+    const indent = l.length - l.trimStart().length
+    if (under !== null) {
+      const item = /^\s*[-*]\s+(.*)$/.exec(l)
+      if (indent > under && item !== null) { out.push(item[1]!.trim()); continue }
+      under = null
+    }
+    if (/^\s*[-*]\s+(?:\*\*)?(?:acceptance criteria|done when)(?::\*\*|\*\*:|:)\s*$/i.test(l)) under = indent
+  }
+  return out
+}
 
 function cites(text: string): string[] {
   const out = new Set<string>()

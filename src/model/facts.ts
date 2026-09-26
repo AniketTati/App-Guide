@@ -14,6 +14,8 @@ export type GapReason =
   | 'unresolved-route-prefix'
   | 'raw-sql'
   | 'unsupported-framework'
+  /** Code in a language this tool does not parse at all. */
+  | 'unsupported-language'
 
 export interface Where {
   file: string

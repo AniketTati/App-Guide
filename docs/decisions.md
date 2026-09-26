@@ -542,3 +542,20 @@ it is defensible.
     named URLs, data, services and packages and dropped exports and edits
     beside a count of 3 that included them. Both voices now end with "and
     made N other changes" for whatever the clauses did not name.
+
+## 19. Building for a PM who maintains draft-legal
+
+100. **The reader was silent about most of a real monorepo.** On draft-legal —
+     907 JS/TS files, a Fastify API with ~290 routes, a Python agents service —
+     it listed none of those routes and said nothing about why. It read only
+     the root `package.json`, which in a workspace declares nothing real, so
+     Fastify (declared in `apps/api`) was never flagged, and every member's
+     dependency was reported as "imported but not in package.json" — 84 false
+     alarms on one copy. Python was not counted at all. Now every manifest in
+     the workspace is read and each dependency is credited to the one that
+     declares it; languages present but unread are declared
+     (`unsupported-language`); virtual environments are skipped by their
+     `pyvenv.cfg`; and path aliases (`@/components`, tsconfig `paths`) and
+     Node built-ins are no longer mistaken for packages. draft-legal's blind
+     spots went from 84 false ones to exactly two true ones: Fastify and
+     Python.

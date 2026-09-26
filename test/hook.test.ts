@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { mkdtemp, readFile, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { execFile } from 'node:child_process'
@@ -11,6 +11,10 @@ import { readConfig, writeConfig } from '../src/config.js'
 // it fails in about a second with no network — a test suite that clones from
 // GitHub on every run is slow, flaky, and quietly depends on the internet.
 beforeAll(() => { process.env['APPGUIDE_SPEC'] = 'file:/nonexistent-appguide-offline-spec' })
+// Installing proves the hook runs by starting npx, whose first start in a fresh
+// process took 3.7s on a loaded machine — too close to the 5s default to be a
+// test of anything but the machine.
+vi.setConfig({ testTimeout: 30_000 })
 
 
 const dir = () => mkdtemp(join(tmpdir(), 'appguide-hook-'))

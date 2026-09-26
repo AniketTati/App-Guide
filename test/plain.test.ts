@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeAll } from 'vitest'
+import { describe, expect, it, beforeAll, vi } from 'vitest'
 import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -8,6 +8,9 @@ import { ask } from '../src/render/ask.js'
 import { setColor } from '../src/render/ansi.js'
 import { installHook } from '../src/hook/install.js'
 import { readConfig } from '../src/config.js'
+
+// Two install tests start npx to prove the hook runs; see hook.test.ts.
+vi.setConfig({ testTimeout: 30_000 })
 
 // verify() runs the real install command. Pointed at a path that cannot exist,
 // it fails in about a second with no network — a test suite that clones from

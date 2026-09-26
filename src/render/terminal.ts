@@ -416,6 +416,7 @@ function describeGap(g: Fact): string {
   switch (g.reason) {
     case 'parse-error': return `${g.subject}: ${g.detail}`
     case 'unsupported-framework': return `${g.subject}: ${g.detail}`
+    case 'unsupported-language': return `${g.subject}: ${g.detail}`
     case 'computed-route-path': return `${g.subject}: route path is built at runtime`
     case 'unresolved-route-prefix': return `${g.subject}: router mounted elsewhere, prefix unknown`
     case 'dynamic-dispatch': return `${g.subject}: dispatches dynamically`

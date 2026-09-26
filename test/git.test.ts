@@ -54,3 +54,25 @@ describe('the git layer, in awkward places', () => {
     expect(work.map((w) => w.branch)).toEqual(['inner'])
   })
 })
+
+describe('asking git questions without writing', () => {
+  it('says whether two branches merge, leaving the object store as it was', async () => {
+    const { mkdtemp: mk, writeFile: wf, readdir: rd } = await import('node:fs/promises')
+    const { join: j } = await import('node:path')
+    const { tmpdir: td } = await import('node:os')
+    const { execFileSync } = await import('node:child_process')
+    const { mergesCleanly } = await import('../src/git/repo.js')
+    const dir = await mk(j(td(), 'appguide-merge-test-'))
+    const g = (...a: string[]): string => execFileSync('git', a, { cwd: dir, encoding: 'utf8' })
+    g('init', '-q', '-b', 'main'); g('config', 'user.email', 't@example.com'); g('config', 'user.name', 'T')
+    await wf(j(dir, 'a.txt'), 'one\ntwo\nthree\n'); g('add', '.'); g('commit', '-qm', 'base')
+    g('checkout', '-qb', 'left'); await wf(j(dir, 'a.txt'), 'ONE\ntwo\nthree\n'); g('commit', '-qam', 'left')
+    g('checkout', '-q', 'main'); g('checkout', '-qb', 'right'); await wf(j(dir, 'a.txt'), 'uno\ntwo\nthree\n'); g('commit', '-qam', 'right')
+    g('checkout', '-q', 'main'); g('checkout', '-qb', 'apart'); await wf(j(dir, 'b.txt'), 'new\n'); g('add', '.'); g('commit', '-qm', 'apart')
+    const count = async (): Promise<number> => (await rd(j(dir, '.git/objects'), { recursive: true })).length
+    const before = await count()
+    expect(await mergesCleanly(dir, 'left', 'right')).toEqual({ clean: false, files: ['a.txt'] })
+    expect(await mergesCleanly(dir, 'left', 'apart')).toEqual({ clean: true })
+    expect(await count()).toBe(before)
+  })
+})

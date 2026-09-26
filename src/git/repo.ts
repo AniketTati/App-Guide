@@ -1,8 +1,9 @@
 import { execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
+import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import type { Fact } from '../model/facts.js'
 import { extract } from '../run.js'
 
@@ -34,8 +35,19 @@ export async function gitBinary(): Promise<string> {
   throw new Error('git was not found — it is needed to read branches and history')
 }
 
-export async function git(cwd: string, args: readonly string[]): Promise<string> {
-  const { stdout } = await exec(await gitBinary(), [...args], { cwd, maxBuffer: 64 * 1024 * 1024 })
+/**
+ * Reads never take git's optional locks. Without this, `git status` refreshes
+ * a worktree's index under index.lock, and Claude's own `git add` in that
+ * worktree at the same moment fails with "index.lock: File exists".
+ */
+const env = (): NodeJS.ProcessEnv => ({ ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' })
+
+/** Long enough for a status of a very large tree; short enough that one hung
+ *  read (a lazy fetch, a file evicted to the cloud) can't freeze every screen. */
+const TIMEOUT = 120_000
+
+export async function git(cwd: string, args: readonly string[], extra: NodeJS.ProcessEnv = {}): Promise<string> {
+  const { stdout } = await exec(await gitBinary(), [...args], { cwd, maxBuffer: 64 * 1024 * 1024, env: { ...env(), ...extra }, timeout: TIMEOUT })
   return stdout
 }
 
@@ -50,12 +62,18 @@ export interface Worktree {
 
 export async function worktrees(root: string): Promise<Worktree[]> {
   const out: Worktree[] = []
-  for (const block of (await git(root, ['worktree', 'list', '--porcelain'])).split(/\n\n+/)) {
-    const path = /^worktree (.+)$/m.exec(block)?.[1]
-    const head = /^HEAD ([0-9a-f]+)$/m.exec(block)?.[1]
-    if (path === undefined || head === undefined || /^bare$/m.test(block)) continue
-    const branch = /^branch refs\/heads\/(.+)$/m.exec(block)?.[1] ?? null
-    out.push({ path, head, branch, primary: out.length === 0 })
+  // git lists the repository's own checkout first.
+  for (const [index, block] of (await git(root, ['worktree', 'list', '--porcelain', '-z'])).split(/\0\0+/).entries()) {
+    const lines = block.split('\0')
+    const field = (name: string): string | undefined => lines.find((l) => l === name || l.startsWith(`${name} `))?.slice(name.length + 1)
+    const path = field('worktree')
+    const head = field('HEAD')
+    if (path === undefined || head === undefined || !/^[0-9a-f]+$/.test(head) || lines.includes('bare')) continue
+    // A worktree whose folder was deleted without `git worktree prune`: there
+    // is nothing on disk to read, and reading it showed every route as gone.
+    if (lines.some((l) => l === 'prunable' || l.startsWith('prunable ')) || !existsSync(path)) continue
+    const branch = field('branch')?.replace(/^refs\/heads\//, '') ?? null
+    out.push({ path, head, branch, primary: index === 0 })
   }
   return out
 }
@@ -167,23 +185,75 @@ export async function writeAtomically(path: string, text: string): Promise<void>
 /** A commit's product files, written into `dest` — never into the repository. */
 export async function checkoutAt(root: string, sha: string, dest: string): Promise<void> {
   const files = nul(await git(root, ['ls-tree', '-r', '--name-only', '-z', sha])).filter((p) => PRODUCT_FILE.test(p))
-  if (files.length > 0) await archive(root, sha, files, dest)
+  // In batches: tens of thousands of names overflow one command line.
+  for (let i = 0; i < files.length; i += 2000) await archive(root, sha, files.slice(i, i + 2000), dest)
 }
 
 /** `git archive <sha> -- files… | tar -x -C dest`, without a shell. */
 async function archive(root: string, sha: string, files: readonly string[], dest: string): Promise<void> {
   const binary = await gitBinary()
   await new Promise<void>((resolvePromise, reject) => {
-    const producer = spawn(binary, ['archive', '--format=tar', sha, '--', ...files], { cwd: root })
+    const producer = spawn(binary, ['archive', '--format=tar', sha, '--', ...files], { cwd: root, env: env() })
     const consumer = spawn('/usr/bin/tar', ['-x', '-C', dest])
     let failed = false
-    const fail = (err: Error): void => { if (!failed) { failed = true; reject(err) } }
+    const timer = setTimeout(() => { producer.kill(); consumer.kill(); fail(new Error('reading the commit took too long')) }, TIMEOUT)
+    const fail = (err: Error): void => { clearTimeout(timer); if (!failed) { failed = true; reject(err) } }
     producer.stdout.pipe(consumer.stdin)
     producer.on('error', fail)
     consumer.on('error', fail)
     let stderr = ''
     producer.stderr.on('data', (d: Buffer) => { stderr += d.toString() })
     producer.on('close', (code) => { if (code !== 0) fail(new Error(`git archive failed: ${stderr.trim()}`)) })
-    consumer.on('close', (code) => { if (code === 0) { if (!failed) resolvePromise() } else fail(new Error('tar could not unpack the commit')) })
+    consumer.on('close', (code) => { clearTimeout(timer); if (code === 0) { if (!failed) resolvePromise() } else fail(new Error('tar could not unpack the commit')) })
   })
+}
+
+/**
+ * Whether `theirs` merges into `ours` without conflicts, worked out by
+ * `merge-tree`: no worktree, index or ref is touched, and the objects the
+ * merge makes go to a scratch folder, reading the repository's own as an
+ * alternate — its object store is left exactly as it was. null when this git
+ * can't say (older than 2.38).
+ */
+export async function mergesCleanly(root: string, ours: string, theirs: string): Promise<{ clean: true } | { clean: false; files: string[] } | null> {
+  const scratch = await mkdtemp(join(tmpdir(), 'appguide-merge-'))
+  try {
+    const common = (await git(root, ['rev-parse', '--git-common-dir'])).trim()
+    const objects = join(isAbsolute(common) ? common : join(root, common), 'objects')
+    await git(root, ['merge-tree', '--write-tree', '--name-only', '--no-messages', ours, theirs], { GIT_OBJECT_DIRECTORY: scratch, GIT_ALTERNATE_OBJECT_DIRECTORIES: objects })
+    return { clean: true }
+  } catch (e) {
+    // Exit 1 with the conflicted files after the tree id; anything else is not an answer.
+    const out = (e as { code?: number; stdout?: string }).code === 1 ? (e as { stdout?: string }).stdout : undefined
+    if (out === undefined) return null
+    return { clean: false, files: out.split('\n').slice(1).map((l) => l.trim()).filter(Boolean) }
+  } finally {
+    await rm(scratch, { recursive: true, force: true })
+  }
+}
+
+/** Where a branch is pushed, and how many of its commits aren't there yet. */
+export async function upstreamOf(root: string, branch: string, head: string): Promise<{ upstream: string; unpushed: number } | null> {
+  try {
+    const upstream = (await git(root, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', `${branch}@{upstream}`])).trim()
+    const unpushed = Number((await git(root, ['rev-list', '--count', `${upstream}..${head}`])).trim())
+    return { upstream, unpushed }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The lines of `file` a change touched, as line ranges in its new version.
+ * Against the working tree when `head` is null — uncommitted edits included.
+ */
+export async function changedLines(cwd: string, from: string, head: string | null, file: string): Promise<[number, number][]> {
+  const out = await git(cwd, ['diff', '-U0', '--no-color', '--no-ext-diff', from, ...(head === null ? [] : [head]), '--', file]).catch(() => '')
+  const ranges: [number, number][] = []
+  for (const m of out.matchAll(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/gm)) {
+    const start = Number(m[1])
+    const count = m[2] === undefined ? 1 : Number(m[2])
+    ranges.push([start, start + Math.max(count, 1) - 1])
+  }
+  return ranges
 }

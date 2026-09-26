@@ -4,12 +4,11 @@ import type { Fact, Middleware } from '../../model/facts.js'
 import type { ParsedFile } from '../parse.js'
 import type { RouteDetector } from './types.js'
 import { normalise } from './express.js'
+import { isTestFile } from '../files.js'
 
 const METHODS = new Set(['get', 'post', 'put', 'patch', 'delete', 'options', 'head', 'all'])
 /** The hooks that run before a handler: where a check lives. */
 const CHECK_HOOKS = new Set(['onRequest', 'preParsing', 'preValidation', 'preHandler'])
-/** Tests build the app and register routes too — at other prefixes, or twice. */
-export const TEST_FILE = /(^|\/)(__tests__|tests?|test-support|e2e)\/|\.(test|spec)\.[cm]?[jt]sx?$/
 
 type Fn = ts.FunctionDeclaration | ts.FunctionExpression | ts.ArrowFunction
 
@@ -52,7 +51,9 @@ export const fastify: RouteDetector = {
   packages: ['fastify'],
   detect({ files }) {
     const facts: Fact[] = []
-    const sources = files.filter((f) => !TEST_FILE.test(f.path))
+    // Tests build the app too — at other prefixes, or twice. The caller has
+    // already left them out; this keeps the detector safe on its own.
+    const sources = files.filter((f) => !isTestFile(f.path))
     const paths = new Set(sources.map((f) => f.path))
     const index = new Map(sources.map((f) => [f.path, indexFile(f, paths)]))
     const walked = new Set<Fn>()

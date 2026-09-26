@@ -25,6 +25,15 @@ const UNREAD: Readonly<Record<string, string>> = {
 }
 
 const SOURCE = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/
+
+/**
+ * Tests exercise the product; they are not the product. A test that inserts a
+ * user is not "your app now writes users", and a test app mounted at another
+ * prefix is not a second API. Package imports still read them — a test
+ * framework is a real dependency.
+ */
+const TEST_FILE = /(^|\/)(__tests__|tests?|test-support|e2e)\/|\.(test|spec)\.[cm]?[jt]sx?$/
+export const isTestFile = (path: string): boolean => TEST_FILE.test(path)
 const DECLARATION = /\.d\.(ts|mts|cts)$/
 
 export interface SourceFile {

@@ -8,6 +8,7 @@ import { scanExternal } from './extract/external.js'
 import { scanData } from './extract/data.js'
 import { scanExports } from './extract/exports.js'
 import { parseAll } from './extract/parse.js'
+import { isTestFile } from './extract/files.js'
 import { compare } from './diff/compare.js'
 import { toReport } from './diff/rank.js'
 
@@ -27,13 +28,15 @@ export async function run({ root, mark, voice = 'technical' }: RunOptions): Prom
   // neither the framework nor the ORM, and gating on it alone made routes and
   // database writes vanish with no gap to say so.
   const present = new Set([...scan.declared, ...scan.importers.keys()])
+  // What the product does is read from its own code, not from its tests.
+  const product = parsed.filter((f) => !isTestFile(f.path))
   const facts = [
     ...scan.facts,
     ...parseGaps,
-    ...scanRoutes({ files: parsed, declared: present }),
-    ...scanExternal(parsed, scan.importers),
-    ...scanData(parsed, present),
-    ...scanExports(parsed),
+    ...scanRoutes({ files: product, declared: present }),
+    ...scanExternal(product, scan.importers),
+    ...scanData(product, present),
+    ...scanExports(product),
   ]
   const gaps = facts.filter((f): f is Extract<Fact, { kind: 'gap' }> => f.kind === 'gap')
 

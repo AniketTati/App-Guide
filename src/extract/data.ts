@@ -26,12 +26,33 @@ export function scanData(files: readonly ParsedFile[], declared: ReadonlySet<str
   for (const file of files) {
     const mod = moduleOf(file.path)
     const src = file.ast
-    const clients = ormBindings(src)
+    const lineOf = (n: ts.Node): number => src.getLineAndCharacterOfPosition(n.getStart(src)).line + 1
 
-    const visit = (node: ts.Node): void => {
+    const visit = (node: ts.Node, clients: ReadonlySet<string>): void => {
+      // Inside `prisma.$transaction(async (tx) => …)`, and inside a function
+      // handed a transaction client, that parameter is the client. Missing it
+      // lost every write made inside a transaction — 53 of them in one real
+      // API — with no gap to say so.
+      const scoped = prisma ? transactionClients(node, clients, src) : null
+      if (scoped !== null) {
+        ts.forEachChild(node, (c) => visit(c, scoped))
+        return
+      }
+
+      // Hand-written SQL names its tables inside a string. We do not read it,
+      // and we must not be silent that it exists.
+      if (prisma && isRawSql(node, clients)) {
+        const line = lineOf(node)
+        facts.push({
+          kind: 'gap', reason: 'raw-sql', subject: `${file.path}:${line}`,
+          detail: 'hand-written SQL — the tables it reads or changes are not listed',
+          where: { file: file.path, line },
+        })
+      }
+
       if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
         const method = node.expression.name.text
-        const line = src.getLineAndCharacterOfPosition(node.getStart(src)).line + 1
+        const line = lineOf(node)
 
         // Prisma: <client>.<model>.<method>(), where <client> is a binding we
         // resolved to a PrismaClient — including this.prisma and ctx.prisma,
@@ -50,9 +71,9 @@ export function scanData(files: readonly ParsedFile[], declared: ReadonlySet<str
           }
         }
       }
-      ts.forEachChild(node, visit)
+      ts.forEachChild(node, (c) => visit(c, clients))
     }
-    visit(src)
+    visit(src, ormBindings(src))
   }
 
   function push(table: string, method: string, mod: string, file: string, line: number): void {
@@ -82,6 +103,39 @@ function ormBindings(src: ts.SourceFile): Set<string> {
   }
   visit(src)
   return out
+}
+
+const RAW_SQL = new Set(['$queryRaw', '$executeRaw', '$queryRawUnsafe', '$executeRawUnsafe'])
+
+/** `prisma.$queryRaw\`…\`` (a tagged template) or `prisma.$executeRawUnsafe(…)`. */
+function isRawSql(node: ts.Node, clients: ReadonlySet<string>): boolean {
+  const callee = ts.isTaggedTemplateExpression(node) ? node.tag : ts.isCallExpression(node) ? node.expression : undefined
+  return callee !== undefined && ts.isPropertyAccessExpression(callee) && RAW_SQL.has(callee.name.text) && clients.has(rootName(callee.expression))
+}
+
+/**
+ * The client set to use inside `node`, when `node` introduces a transaction
+ * client: a `$transaction` callback's first parameter, or a function parameter
+ * typed as a Prisma client or transaction client. null when it introduces none.
+ */
+function transactionClients(node: ts.Node, clients: ReadonlySet<string>, src: ts.SourceFile): ReadonlySet<string> | null {
+  const withParam = (fn: ts.SignatureDeclarationBase, index: number): ReadonlySet<string> | null => {
+    const param = fn.parameters[index]?.name
+    return param !== undefined && ts.isIdentifier(param) ? new Set([...clients, param.text]) : null
+  }
+  if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) &&
+      node.expression.name.text === '$transaction' && clients.has(rootName(node.expression.expression))) {
+    const [fn] = node.arguments
+    if (fn !== undefined && (ts.isArrowFunction(fn) || ts.isFunctionExpression(fn))) {
+      const scoped = withParam(fn, 0)
+      if (scoped !== null) return scoped
+    }
+  }
+  if (ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node) || ts.isArrowFunction(node) || ts.isMethodDeclaration(node)) {
+    const typed = node.parameters.findIndex((p) => p.type !== undefined && /\b(TransactionClient|PrismaClient)\b/.test(p.type.getText(src)))
+    if (typed !== -1) return withParam(node, typed)
+  }
+  return null
 }
 
 /** Tables declared with a drizzle table builder in this file. */

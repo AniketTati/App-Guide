@@ -623,3 +623,15 @@ it is defensible.
      name — which collides with "in-app guides", a category every PM knows — is
      settled before anything is announced. A Developer ID and notarisation wait
      until a second PM asks.
+109. **Tests are not the product, and transactions are.** Two silent misses
+     the developer critique measured. Writes made through a transaction client
+     — `prisma.$transaction(async (tx) => tx.x.update())`, or a function handed
+     a `Prisma.TransactionClient` — were not read at all; they are now, with the
+     alias scoped to its callback. Hand-written SQL (`$queryRaw` and friends,
+     often a tagged template the reader never looked inside) produced nothing;
+     each call is now a `raw-sql` blind spot. And test files were being read as
+     the product: a test that inserts a user became "writes users", a fixture
+     URL became an outside service. They are now left out of routes, data,
+     outside calls and exports — draft-legal's outside services went from 16 to
+     9 and its raw-SQL blind spots from 54 to 22, matching an independent count
+     — while their package imports still count.

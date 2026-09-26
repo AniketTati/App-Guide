@@ -134,13 +134,20 @@ describe('what each screen calls', () => {
     expect(routesOf('/audit')).toEqual(['GET /api/v1/contracts'])
   })
 
-  it('keeps a call that matches no route, as a finding', () => {
-    expect(p.unmatched.map((u) => `${u.method} ${u.path} ${u.screen}`)).toEqual(['GET /api/v1/approvals /contracts/:id'])
+  it('keeps a call that matches no route, as a finding — a shared part’s under the part', () => {
+    expect(p.unmatched.map((u) => `${u.method} ${u.path} ${u.screen} ${u.via}`)).toEqual(['GET /api/v1/approvals /contracts/:id null', 'GET /api/v1/me null Avatar'])
   })
 
-  it('credits the layout, not every screen, with what the layout calls — and a piece three screens share, to none', () => {
+  it('credits the layout, not every screen, with what the layout calls — and a piece three screens share, to itself', () => {
     expect(p.layout.map((l) => `${l.route.method} ${l.route.path}`)).toEqual(['GET /api/v1/health'])
     expect([...p.links.values()].flat().some((l) => l.call.path === '/api/v1/me')).toBe(false)
+    // Listed once, with the screens it appears on — never dropped.
+    expect(p.shared.map((s) => [s.name, s.screens.sort()])).toEqual([['Avatar', ['/contracts', '/contracts/:id', '/login']]])
+  })
+
+  it('knows which screens run each file', () => {
+    expect(p.reach.get('/contracts')).toContain('apps/web/src/components/Avatar.tsx')
+    expect(p.reach.get('/audit')).not.toContain('apps/web/src/components/Avatar.tsx')
   })
 })
 
@@ -162,5 +169,28 @@ describe('what each route does with data, and who may call it', () => {
     expect(rolesFor(r.kind === 'route' && Array.isArray(r.middleware) ? r.middleware : [], p.roles[0]!)).toEqual([
       { role: 'ADMIN', scope: 'org' }, { role: 'SALES', scope: 'own' },
     ])
+  })
+})
+
+describe('work away from any screen', () => {
+  it('reads queues, who puts jobs on them, who does them, and timers — by where names come from', async () => {
+    const { readBackground } = await import('../src/graph/jobs.js')
+    const { parseAll } = await import('../src/extract/parse.js')
+    const { resolver } = await import('../src/graph/resolve.js')
+    const files = parseAll([
+      { path: 'src/lib/queue.ts', text: "import { Queue } from 'bullmq'\nexport const documentQueue = new Queue('documents', {})\nexport const agentQueue = new Queue('agents', {})\n" },
+      { path: 'src/routes/upload.ts', text: "import { documentQueue } from '../lib/queue.js'\nawait documentQueue.add('parse-document', {})\nawait documentQueue.add('parse-document', {})\n" },
+      { path: 'src/lib/review.ts', text: "import { agentQueue } from './queue.js'\nawait agentQueue.add('playbook-review', {}, { repeat: { pattern: '0 * * * *' } })\n" },
+      { path: 'src/workers/parse.worker.ts', text: "import { Worker } from 'bullmq'\nimport { documentQueue } from '../lib/queue.js'\nexport const w = new Worker(documentQueue.name, async () => {})\nsetInterval(() => recover(), 300000)\n" },
+      { path: 'src/lib/diff.ts', text: "import { Worker } from 'node:worker_threads'\nconst t = new Worker('x.js')\n" },
+      { path: 'src/lib/collab.ts', text: "import { Server } from '@hocuspocus/server'\nexport const server = new Server({})\n" },
+    ]).parsed
+    const bg = readBackground(files, resolver(files, new Map(), new Map()))
+    expect(bg.queues.map((q) => [q.name, q.jobs.map((j) => `${j.name}×${j.addedAt.length}`), q.workers.length, q.repeats.length])).toEqual([
+      ['agents', ['playbook-review×1'], 0, 1],
+      ['documents', ['parse-document×2'], 1, 0],
+    ])
+    expect(bg.timers).toEqual([{ file: 'src/workers/parse.worker.ts', line: 4 }])
+    expect(bg.sockets).toEqual([{ file: 'src/lib/collab.ts', line: 2, library: '@hocuspocus/server' }])
   })
 })

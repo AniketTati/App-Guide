@@ -4,7 +4,7 @@ declare global {
   interface Window {
     appguide?: {
       call(method: string, ...args: string[]): Promise<unknown>
-      onChanged(listener: (projectId: string) => void): () => void
+      onChanged(listener: (projectId: string, workIds: string[]) => void): () => void
     }
   }
 }
@@ -28,6 +28,7 @@ export const api: Api = {
   check: (id, workId) => call('check', id, workId) as ReturnType<Api['check']>,
   markSeen: (id) => call('markSeen', id) as ReturnType<Api['markSeen']>,
   markChecked: (id, workId) => call('markChecked', id, workId) as ReturnType<Api['markChecked']>,
+  markPublic: (id, route, on) => call('markPublic', id, route, on) as ReturnType<Api['markPublic']>,
   draftTask: (id, input) => call('draftTask', id, input) as ReturnType<Api['draftTask']>,
   addTask: (id, input) => call('addTask', id, input) as ReturnType<Api['addTask']>,
   openClaude: () => call('openClaude') as ReturnType<Api['openClaude']>,
@@ -38,5 +39,7 @@ export const api: Api = {
 }
 
 export const inApp = (): boolean => window.appguide !== undefined
-export const onChanged = (listener: (projectId: string) => void): (() => void) =>
+/** Something changed between looks: new commits, or — for the work named —
+ *  edits Claude is still making. */
+export const onChanged = (listener: (projectId: string, workIds: string[]) => void): (() => void) =>
   window.appguide?.onChanged(listener) ?? (() => undefined)

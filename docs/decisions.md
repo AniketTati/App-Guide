@@ -701,7 +701,7 @@ it is defensible.
      page asks from two screens — share one read, and every cache write uses
      its own temporary file; one shared name made the second writer's rename
      fail.
-115. **Asking for a change writes one thing, in the tracker's own shape.** The
+115. ~~**Asking for a change writes one thing, in the tracker's own shape.**~~ **[SUPERSEDED BY #123]** The
      PM says what should change, why, and when it is done, and picks where
      from Product. The app drafts a task: the next ID in the family the
      tracker used last, the tracker's field order, the picked screens and
@@ -713,3 +713,122 @@ it is defensible.
      else. The brief for Claude names the task and the tracker's own cycle
      and adds what the code says about the picked items: who may call a
      route and what it changes. The development server never writes.
+116. **The built app, critiqued three ways — and the facts came first.** A PM
+     persona used it against draft-legal; a designer read every screen; a code
+     review read the source. The worst finds were wrong facts, not looks:
+     Home said one task waited on the PM when the tracker said three; a Check
+     called a branch that changes the role table, the schema and Python
+     "nothing that affects how your app is put together"; `git status` on
+     every poll took each worktree's index lock, so Claude's own commit could
+     fail; facts cached by an older build were diffed against a newer one;
+     "checked" held while Claude kept editing the same files; an old
+     worktree's copy of a task overrode the tracker; calls from a dialog three
+     pages share were dropped; Ask could write text never shown, onto someone
+     else's branch; and two saves at once could wipe what the app remembers.
+     #117–#126 are the fixes, in that order of weight.
+117. **The tracker, read as it is really written.** A list entry's bold can be
+     followed by more of it (`— VERIFY-PENDING.** Found in the X3 review.`), a
+     status can carry its reason (`BLOCKED (needs a decision)`), and a title
+     can end in its severity (`(Low)`). The first shape alone dropped 56 of
+     draft-legal's 126 list entries, two of them waiting on the PM. A
+     tracker's closing "What's left" section is its latest word on each open
+     task, so that line is shown instead of the reason written when the task
+     was opened, which had gone stale. On draft-legal: 147 of 147 entries
+     read, and waiting on the PM is exactly the three tasks the tracker's own
+     "What's left" names.
+118. **"Only your own" written in a handler is a check.** A 404 counts when the
+     `if` that decides it hands the caller to a lookup — `mayTouch(req, id)`,
+     or the caller's own identity, never their organisation, which every
+     lookup is scoped by. Two routes on a feature branch checked a role's
+     own scope this way, and the Check showed only their permission: the PM
+     would have filed a leak that isn't there. On draft-legal's main the count
+     of in-handler checks is unchanged (49), and no route with no check found
+     gained one.
+119. **A part three screens share is listed once, not dropped.** Crediting a
+     shared module's calls to every screen made 32 pages look like they call
+     `/auth`; dropping them filed `POST /contracts/upload` under "routes no
+     screen calls". Each shared part — UploadModal, ContractEditor — is now
+     listed once with the screens it appears on and the routes it calls, and
+     a wrapper written in the routes file itself (an onboarding gate around
+     the layout) is followed into the components it renders. Routes reached
+     from a screen on draft-legal: 196 → 201.
+120. **A Check never gives an all-clear over what it can't read.** Who may
+     call a route now comes from the branch's own role table, and a change to
+     that table is shown role by role ("FINANCE on renewal: was view, now
+     view, approve"). The schema's tables and lists of values are compared
+     before and after, and new migrations named. Routes that were there
+     before but whose own lines changed are listed — "the API accepts
+     `rejected`" is a change. Changed files in another language, or deploy
+     settings, are named, and while any are there the headline says what it
+     can't read instead of "nothing". A test repository whose branch changes
+     only the role table, the schema and Python reads: "It changes what 1 role
+     may do, adds 1 table and changes 1 table. It also changes Python (1
+     file), which I can't read."
+121. **A Check opens with a verdict, and says what to do next.** Under its
+     one-sentence answer: the acceptance criteria written (or that there are
+     none), whether it merges cleanly into main as it is now and with the
+     other work it shares files with, whether it is pushed, and whether it
+     touched tests. Then what people will notice — screens to try, role
+     changes, calls to routes that don't exist — then the product changes,
+     what it can't read, and last its tasks, with Claude's own words folded
+     away. Mark checked, "ready — copy push and open a PR", "send back with
+     notes" and the questions for Claude stay in a footer; a Check says so
+     when the work moves while it is open. Merging is worked out by
+     `git merge-tree`, with the objects it makes written to a scratch folder
+     that reads the repository's own as an alternate — its object store is
+     left as it was. (The first manual try, before that, left one
+     unreferenced tree object in draft-legal's store; git's own clean-up
+     removes it.)
+122. **Reading never gets in Claude's way.** Every git read runs with
+     `GIT_OPTIONAL_LOCKS=0`, so a status never takes a worktree's index lock,
+     and with a time limit; a read stuck for five minutes restarts the
+     reader instead of holding every screen, and a slow poll no longer stacks
+     another behind it. A worktree deleted without `git worktree prune` is
+     skipped, not read as an empty folder; one that shares no history with
+     main is set aside with the reason instead of failing Home. `git archive`
+     takes files in batches, and scratch copies a killed reader left are
+     swept after an hour.
+123. **Asking for a change writes only what was shown, only where it is safe.**
+     Supersedes #115. A new ask starts a family of its own after the
+     tracker's newest — FF after EE — kept for the day's section, never one
+     any branch already uses; it is written the way the tracker's newest
+     entries are (a list entry, on draft-legal), with a severity if the PM
+     gives one. The preview is exactly the lines that would be added, section
+     heading included. Copy for Claude comes first: the brief has Claude add
+     the task in its own commit before any code. The app adds it itself only
+     to a clean checkout of main that is up to date — otherwise it says why
+     not — only if the preview the PM approved is still what it would write,
+     and only if the file is unchanged just before the new version replaces
+     it.
+124. **"Checked" means as it was seen, and what the app remembers survives.**
+     A piece of work's fingerprint is its commit and each uncommitted file's
+     size and time, so an edit Claude makes after the PM checks it shows —
+     not only a change in how many files. Saves run one at a time, each
+     through its own temporary file, the last one kept as a backup; a file
+     that can't be read is set aside and said, never saved over. Facts and
+     product reads are cached in a folder named for the build of the reader
+     that made them, and older builds' folders are removed.
+125. **Work is named by what it is for, and found wherever it is.** A piece of
+     work is named by its plan document's title, else its first task's, else
+     its folder — a worktree with no commits yet is named by the plan
+     document it added. Before a commit names a
+     task, the tracker entries it added or changed are its tasks. Branches
+     with commits not on main are listed too, local and origin's; those with
+     no commit for three weeks sit apart, those whose changes are all on main
+     already are left out, and overlap is counted only with work that's
+     active. Finished work — committed, every task done — that the PM hasn't
+     checked waits on them beside the tasks. Home says when main was last
+     fetched, and starts counting again, and says so, if main's history was
+     rewritten.
+126. **One accent, one route line, the answer first.** The accent means "this
+     needs you" and nothing else: buttons are ink, links and selection
+     grey. Every route, on every screen, is one line — method, path with its
+     `/api/v1` set back, who may call it in words ("all 9 roles · SALES_REP
+     own only"), and where — that opens to its checks, roles and data. Home's
+     headline is the answer ("3 tasks wait on you, and one piece of work is
+     ready to check"). Routes with no check found can be marked "public on purpose" —
+     the PM's call, kept by the app — and Home's count asks for attention
+     only for the rest. Product can be viewed as one role; Who can do what
+     also reads by screen ("SALES_REP isn't allowed 2 of Dashboard's 6
+     calls" — not called a fault, since a screen may hide those); and a call
+     that reaches no route, or any route, can become a task in one click.

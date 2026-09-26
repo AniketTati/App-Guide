@@ -258,6 +258,29 @@ describe('what counts as a check', () => {
     expect(find(facts, 'POST', '/api/hook')?.middleware).toEqual(['requireUser', 'in-handler check'])
   })
 
+  it('counts a 404 decided by a lookup handed the caller — "only your own" — and not one scoped by organisation', () => {
+    const facts = detect(app(`
+      async function mayTouch(req: FastifyRequest, id: string) { return !!await db.find({ where: { id, ...own(req) } }) }
+      export async function routes(app: FastifyInstance) {
+        app.get('/runs/:id', { preHandler: requirePermission('view', 'contract') }, async (req, reply) => {
+          const run = await getRun(req.user.orgId, req.params.id)
+          if (!run || (run.contractId && !await mayTouch(req, run.contractId))) return reply.status(404).send({ detail: 'Run not found' })
+          return run
+        })
+        app.get('/mine/:id', async (request, reply) => {
+          if (!await isOwner(request.user.sub, request.params.id)) return reply.notFound()
+          return {}
+        })
+        app.get('/org/:id', async (req, reply) => {
+          if (!await inOrg(req.user.orgId, req.params.id)) return reply.status(404).send()
+          return {}
+        })
+      }`))
+    expect(find(facts, 'GET', '/api/runs/:id')?.middleware).toEqual(["requirePermission('view', 'contract')", 'in-handler check'])
+    expect(find(facts, 'GET', '/api/mine/:id')?.middleware).toEqual(['in-handler check'])
+    expect(find(facts, 'GET', '/api/org/:id')?.middleware).toEqual([])
+  })
+
   it('reads a plugin registered at two prefixes at both', () => {
     const facts = detect({
       'src/app.ts': `

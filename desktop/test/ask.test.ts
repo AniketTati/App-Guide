@@ -49,11 +49,13 @@ const input = {
 }
 
 describe('asking for a change', () => {
-  it('drafts the next task with the code’s own facts, writing nothing', async () => {
-    const d = await draftTask(root, input, cache)
-    expect(d).toMatchObject({ id: 'EE2', suggestedId: 'EE2', file: 'FIX_TRACKER.md', branch: 'main', problem: null })
+  it('drafts a task in a family of its own, in the tracker’s newest shape, writing nothing', async () => {
+    const d = await draftTask(root, { ...input, severity: 'Medium' }, cache)
+    expect(d).toMatchObject({ id: 'FF1', suggestedId: 'FF1', file: 'FIX_TRACKER.md', branch: 'main', problem: null, cantAdd: null })
+    // The preview is exactly what would be added: the section heading too.
+    expect(d.text.split('\n').slice(0, 3)).toEqual([expect.stringMatching(/^## Asked for in App Guide \(\d{4}-\d\d-\d\d\)$/), '', '- **FF1 — Let Finance approve renewals (Medium). — TODO.**'])
     expect(d.text).toContain('`POST /api/v1/approvals/:instanceId/decide` in `apps/api/src/routes/approvals.ts:2`')
-    expect(d.brief.split('\n')[0]).toBe('Work task EE2 in FIX_TRACKER.md, following the cycle and ground rules at the top of that file. Name the task in each commit subject, like "(EE2)".')
+    expect(d.brief.split('\n')[0]).toMatch(/^First make sure task FF1 below is in FIX_TRACKER\.md/)
     expect(d.brief).toContain('it changes approvalStep')
     expect((await run('git', ['status', '--porcelain'], { cwd: root })).stdout).toBe('')
   }, 60_000)
@@ -62,11 +64,29 @@ describe('asking for a change', () => {
     await expect(addDraftedTask(root, { ...input, criteria: [''] }, cache)).rejects.toThrow(/done when/)
   }, 60_000)
 
+  it('writes only the preview the PM saw', async () => {
+    await expect(addDraftedTask(root, { ...input, hash: 'not-the-preview' }, cache)).rejects.toThrow(/changed since you saw the preview/)
+    expect((await run('git', ['status', '--porcelain'], { cwd: root })).stdout).toBe('')
+  }, 60_000)
+
+  it('won’t add it on someone’s branch — only Claude should, from the brief', async () => {
+    await run('git', ['checkout', '-q', '-b', 'fix/other'], { cwd: root, env })
+    try {
+      const d = await draftTask(root, input, cache)
+      expect(d.cantAdd).toMatch(/^Your checkout is on fix\/other, not main/)
+      await expect(addDraftedTask(root, { ...input, hash: d.hash }, cache)).rejects.toThrow(/not main/)
+    } finally {
+      await run('git', ['checkout', '-q', 'main'], { cwd: root, env })
+    }
+  }, 60_000)
+
   it('adds it before the tracker’s log, and changes nothing else', async () => {
-    const r = await addDraftedTask(root, input, cache)
-    expect(r).toMatchObject({ id: 'EE2', file: 'FIX_TRACKER.md' })
+    const d = await draftTask(root, input, cache)
+    const r = await addDraftedTask(root, { ...input, hash: d.hash }, cache)
+    expect(r).toMatchObject({ id: 'FF1', file: 'FIX_TRACKER.md' })
     const tracker = await readFile(join(root, 'FIX_TRACKER.md'), 'utf8')
-    expect(tracker.indexOf('### EE2 — Let Finance approve renewals')).toBeLessThan(tracker.indexOf('## Run log'))
+    expect(tracker).toContain(d.text)
+    expect(tracker.indexOf('- **FF1 — Let Finance approve renewals. — TODO.**')).toBeLessThan(tracker.indexOf('## Run log'))
     expect((await run('git', ['status', '--porcelain'], { cwd: root })).stdout.trim()).toBe('M FIX_TRACKER.md')
   }, 60_000)
 })

@@ -27,19 +27,23 @@ const calls: Record<string, (...a: string[]) => Promise<unknown>> = {
   removeProject: async () => undefined,
   home: async () => { last = await home(project, state, cache); state.seenMain ??= last.baseHead; return last.view },
   check: async (_id, workId) => (await checkWork(project, workId!, state, cache)).view,
-  product: async () => productOnMain(project.path, cache),
+  product: async () => ({ ...(await productOnMain(project.path, cache)), publicOk: state.publicOk ?? [] }),
   draftTask: async (_id, input) => draftTask(project.path, JSON.parse(input!) as never, cache),
   // The development server never writes to a repository.
   addTask: async () => { throw new Error('the development server is read-only — add tasks from the app') },
   openClaude: async () => false,
   markSeen: async () => { if (last) state.seenMain = last.baseHead },
-  markChecked: async (_id, workId) => { const w = last?.work.find((x) => x.id === workId); if (w) state.checked[workId!] = { at: new Date().toISOString(), head: w.head, dirty: w.dirty } },
+  markChecked: async (_id, workId) => { const w = last?.work.find((x) => x.id === workId); if (w) state.checked[workId!] = { at: new Date().toISOString(), head: w.head, dirty: w.dirty, fingerprint: w.fingerprint } },
+  markPublic: async (_id, route, on) => { const list = new Set(state.publicOk ?? []); if (on === 'on') list.add(route!); else list.delete(route!); state.publicOk = [...list] },
   copy: async () => undefined,
 }
 
 createServer((req, res) => {
   const host = req.headers.host ?? ''
   if (!/^(127\.0\.0\.1|localhost):\d+$/.test(host)) { res.writeHead(403).end(); return }
+  // A page on another site can send a simple POST here; its Origin says so.
+  const origin = req.headers.origin
+  if (origin !== undefined && !/^http:\/\/(127\.0\.0\.1|localhost):\d+$/.test(origin)) { res.writeHead(403).end(); return }
   const method = /^\/api\/(\w+)$/.exec(req.url ?? '')?.[1]
   if (req.method !== 'POST' || method === undefined || !(METHODS as readonly string[]).includes(method)) { res.writeHead(404).end(); return }
   let body = ''

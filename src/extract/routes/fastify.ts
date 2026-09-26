@@ -11,8 +11,10 @@ const METHODS = new Set(['get', 'post', 'put', 'patch', 'delete', 'options', 'he
 const CHECK_HOOKS = new Set(['onRequest', 'preParsing', 'preValidation', 'preHandler'])
 /** Methods on a reply that end a request without the handler's answer. */
 const REFUSING_REPLIES = new Set(['unauthorized', 'forbidden', 'notFound', 'badRequest', 'redirect'])
-/** A check written inside a handler: an explicit 401 or 403. Anything wider —
- *  a 404 for a missing row, a 400 for bad input — is the handler's own work. */
+/** A check written inside a handler: an explicit 401 or 403; or a 404 decided
+ *  by a lookup that is handed the caller — `if (!await mayTouch(req, id))
+ *  return 404` is how "only your own" is written. A 404 for a missing row, a
+ *  400 for bad input, is the handler's own work. */
 const HANDLER_REFUSALS = new Set([401, 403])
 const IN_HANDLER = 'in-handler check'
 
@@ -388,10 +390,13 @@ export const fastify: RouteDetector = {
       const fn = ts.isArrowFunction(target) || ts.isFunctionExpression(target) ? { idx: env.idx, fn: target as Fn }
         : ts.isIdentifier(target) ? resolveFn(env.idx, target.text) : null
       if (fn === null || fn === 'package' || fn.fn.body === undefined) return false
+      const param = fn.fn.parameters[0]?.name
+      const caller = param !== undefined && ts.isIdentifier(param) ? param.text : null
       const scan = (where: FileIndex, body: ts.Node, depth: number): boolean => {
         let found = false
         const visit = (node: ts.Node): void => {
           if (found) return
+          if (depth === 0 && caller !== null && ts.isIfStatement(node) && handsOverCaller(node.expression, caller, fn.idx.file.ast) && notFound(node.thenStatement)) { found = true; return }
           if (ts.isCallExpression(node)) {
             const callee = unwrap(node.expression)
             if (ts.isPropertyAccessExpression(callee)) {
@@ -409,6 +414,41 @@ export const fastify: RouteDetector = {
         return found
       }
       return scan(fn.idx, fn.fn.body, 0)
+    }
+
+    /** A call in `cond` given the request, or the caller's own identity from
+     *  it — not their organisation, which every lookup is scoped by. */
+    const handsOverCaller = (cond: ts.Expression, caller: string, src: ts.SourceFile): boolean => {
+      let yes = false
+      const isCaller = (e: ts.Expression): boolean => {
+        const x = unwrap(e)
+        if (ts.isIdentifier(x)) return x.text === caller
+        if (!ts.isPropertyAccessExpression(x)) return false
+        const chain = x.getText(src).split('.')
+        return chain[0] === caller && chain[1] === 'user' && !/org|tenant|workspace|team/i.test(chain[chain.length - 1]!)
+      }
+      const visit = (n: ts.Node): void => {
+        if (yes) return
+        if (ts.isCallExpression(n) && n.arguments.some(isCaller)) { yes = true; return }
+        ts.forEachChild(n, visit)
+      }
+      visit(cond)
+      return yes
+    }
+
+    const notFound = (stmt: ts.Node): boolean => {
+      let yes = false
+      const visit = (n: ts.Node): void => {
+        if (yes) return
+        if (ts.isCallExpression(n)) {
+          const callee = unwrap(n.expression)
+          const [first] = n.arguments
+          if (ts.isPropertyAccessExpression(callee) && (((callee.name.text === 'status' || callee.name.text === 'code') && first !== undefined && ts.isNumericLiteral(first) && Number(first.text) === 404) || callee.name.text === 'notFound')) { yes = true; return }
+        }
+        ts.forEachChild(n, visit)
+      }
+      visit(stmt)
+      return yes
     }
 
     const shorthand = (env: Env, call: ts.CallExpression, method: string, scope: Scope, checks: readonly string[]): void => {

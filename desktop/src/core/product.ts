@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -9,15 +10,28 @@ import type { ProductView, RolesView, RouteRow, ScreenRow } from '../shared/api.
 
 type Route = Extract<Fact, { kind: 'route' }>
 
-/** Bumped whenever the view is built differently. */
-const VIEW_VERSION = 3
+/** A product read: the view the pages get, and which files each screen runs —
+ *  kept apart, since only a Check needs the second. */
+export interface ProductBuild {
+  view: ProductView
+  /** screen path -> every file it runs. */
+  reach: Record<string, string[]>
+}
 
 /** The product as it is on main, read from git and cached by commit — what
  *  Home counts, in full. */
 export async function productOnMain(root: string, cacheDir: string): Promise<ProductView> {
   const base = await baseRef(root)
-  const sha = await resolve(root, base)
-  // Product and Who-can-do-what can ask for the same commit at once.
+  return (await productAt(root, await resolve(root, base), base, cacheDir)).view
+}
+
+/**
+ * The product as of a commit, cached by commit: a commit never changes. The
+ * cache folder is named for the build of the app that wrote it, so a newer
+ * app never shows what an older one read.
+ */
+export async function productAt(root: string, sha: string, base: string, cacheDir: string): Promise<ProductBuild> {
+  // Product, Who-can-do-what and a Check can ask for the same commit at once.
   const key = `${cacheDir}\u0000${sha}`
   const running = building.get(key)
   if (running !== undefined) return running
@@ -26,21 +40,45 @@ export async function productOnMain(root: string, cacheDir: string): Promise<Pro
   return p
 }
 
-const building = new Map<string, Promise<ProductView>>()
+const building = new Map<string, Promise<ProductBuild>>()
 
-async function build(root: string, base: string, sha: string, cacheDir: string): Promise<ProductView> {
-  // Versioned: a newer app must not show a view an older one built.
-  const cached = join(cacheDir, `product-v${VIEW_VERSION}-${sha}.json`)
-  try { return JSON.parse(await readFile(cached, 'utf8')) as ProductView } catch { /* not read yet */ }
+async function build(root: string, base: string, sha: string, cacheDir: string): Promise<ProductBuild> {
+  const cached = join(cacheDir, `product-${sha}.json`)
+  try { return JSON.parse(await readFile(cached, 'utf8')) as ProductBuild } catch { /* not read yet */ }
   const scratch = await mkdtemp(join(tmpdir(), 'appguide-product-'))
   try {
     await checkoutAt(root, sha, scratch)
-    const view = productView(await readProduct(scratch), base)
-    await writeAtomically(cached, JSON.stringify(view))
-    return view
+    const product = await readProduct(scratch)
+    const out = buildOf(product, base)
+    await writeAtomically(cached, JSON.stringify(out))
+    // The same read gives the commit's facts: keep them for the diff too.
+    const facts = join(cacheDir, `${sha}.json`)
+    if (!existsSync(facts)) await writeAtomically(facts, JSON.stringify(product.facts))
+    return out
   } finally {
     await rm(scratch, { recursive: true, force: true })
   }
+}
+
+/**
+ * A worktree as it is on disk, uncommitted edits included. Not cached on disk
+ * — it changes as Claude works — but kept for as long as its fingerprint holds.
+ */
+export async function productOfTree(path: string, base: string, fingerprint: string): Promise<{ build: ProductBuild; facts: Fact[] }> {
+  const key = `${path}\u0000${fingerprint}`
+  const hit = trees.get(key)
+  if (hit !== undefined) return hit
+  const p = readProduct(path).then((product) => ({ build: buildOf(product, base), facts: product.facts }))
+  trees.set(key, p)
+  p.catch(() => trees.delete(key))
+  while (trees.size > 4) trees.delete(trees.keys().next().value!)
+  return p
+}
+
+const trees = new Map<string, Promise<{ build: ProductBuild; facts: Fact[] }>>()
+
+export function buildOf(p: Product, base: string): ProductBuild {
+  return { view: productView(p, base), reach: Object.fromEntries(p.reach) }
 }
 
 export function productView(p: Product, base: string): ProductView {
@@ -81,18 +119,32 @@ export function productView(p: Product, base: string): ProductView {
   const open = p.screens.filter((s) => s.app === main && s.signIn === 'none').map(screenRow)
   if (open.length > 0) groups.push({ label: 'No sign-in', note: 'Screens anyone with the address can open.', screens: open })
   for (const app of [...new Set(p.screens.map((s) => s.app))].filter((a) => a !== main)) {
-    groups.push({ label: app === '' ? 'Other screens' : app, note: 'A separate app in this repository.', screens: p.screens.filter((s) => s.app === app).map(screenRow) })
+    groups.push({ label: appName(app), note: 'A separate app in this repository, with screens of its own.', screens: p.screens.filter((s) => s.app === app).map(screenRow) })
   }
 
-  const reached = new Set([...p.links.values()].flat().map((l) => l.route).concat(p.layout.map((l) => l.route)))
+  const reached = new Set([...p.links.values()].flat().map((l) => l.route).concat(p.layout.map((l) => l.route)).concat(p.shared.flatMap((s) => s.links.map((l) => l.route))))
+  const nameOf = new Map(p.screens.map((s) => [s.path, screenRow(s).name]))
   const routes = p.facts.filter((f): f is Route => f.kind === 'route')
   return {
     base,
     groups,
     behind: routes.filter((r) => !reached.has(r)).map(row).sort(byOpenThenPath),
-    layout: p.layout.map((l) => row(l.route)).sort(byOpenThenPath),
-    unmatched: p.unmatched.map((u) => ({ method: u.method, path: u.path, where: `${u.file}:${u.line}`, screen: u.screen })),
+    layout: p.layout.map((l) => ({ ...row(l.route), via: l.call.via })).sort(byOpenThenPath),
+    shared: p.shared.map((s) => ({
+      name: s.name, file: s.file,
+      screens: s.screens.map((x) => nameOf.get(x) ?? x),
+      routes: s.links.map((l) => row(l.route)).sort(byOpenThenPath),
+    })),
+    unmatched: p.unmatched.map((u) => ({ method: u.method, path: u.path, where: `${u.file}:${u.line}`, screen: u.screen, via: u.via })),
     roles: p.roles.length === 0 ? null : rolesView(p.roles, routes),
+    background: {
+      queues: p.background.queues.map((q) => ({
+        name: q.name, declared: at(q.declared), repeats: q.repeats.length, workers: q.workers.map(at),
+        jobs: q.jobs.map((j) => ({ name: j.name, addedAt: j.addedAt.map(at) })),
+      })),
+      timers: p.background.timers.map(at),
+      sockets: p.background.sockets.map((s) => ({ where: at(s), library: s.library })),
+    },
     readAt: new Date().toISOString(),
   }
 }
@@ -131,11 +183,16 @@ function rolesView(tables: readonly RoleTable[], routes: readonly Route[]): Role
   return out
 }
 
+/** "@clm/marketing" -> "marketing": a workspace's name as people say it. */
+const appName = (app: string): string => (app === '' ? 'Other screens' : app.replace(/^@[^/]+\//, '').replace(/[-_]/g, ' '))
+
 /** `ContractDetailPage` -> "Contract detail": the code's own name, spaced. */
 function humanise(component: string): string {
   const words = component.replace(/(Page|Screen|View|Route)$/, '').replace(/([a-z0-9])([A-Z])/g, '$1 $2').split(' ')
   return words.map((w, i) => (i === 0 ? w : w.toLowerCase())).join(' ') || component
 }
+
+const at = (w: { file: string; line: number }): string => `${w.file}:${w.line}`
 
 const byOpenThenPath = (a: RouteRow, b: RouteRow): number => Number(b.noCheck) - Number(a.noCheck) || (a.path < b.path ? -1 : a.path > b.path ? 1 : a.method < b.method ? -1 : 1)
 

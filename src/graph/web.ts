@@ -35,7 +35,22 @@ export interface WebApp {
   calls: Map<string, ApiCall[]>
   /** Calls made by a layout every screen under it shares. */
   layout: ApiCall[]
+  /** Parts three or more screens use — a dialog, an editor, a store — each
+   *  listed once with its calls and the screens it appears on, instead of
+   *  crediting its calls to every one of them. */
+  shared: SharedPart[]
+  /** Every file each screen runs, three imports deep: which screens a change
+   *  to a file reaches. */
+  reach: Map<string, string[]>
   sections: { label: string | null; items: { to: string; label: string }[] }[]
+}
+
+export interface SharedPart {
+  name: string
+  file: string
+  /** Paths of the screens that reach it. */
+  screens: string[]
+  calls: ApiCall[]
 }
 
 interface Client { base: string }
@@ -99,7 +114,18 @@ export function readWeb(files: readonly ParsedFile[], r: Resolver): WebApp {
     for (const [f, via] of closure(file, r, clients)) { const p = r.file(f); if (p !== undefined) out.push(...callsIn(p, r, clients, via)) }
     return out
   }))
-  return { screens, calls, layout, sections }
+  // A shared part's calls are still the product's calls: an upload dialog on
+  // three pages is how contracts get uploaded. Dropping them filed the upload
+  // route under "no screen calls it".
+  const sharedParts: SharedPart[] = []
+  for (const f of [...shared].sort()) {
+    const parsed = r.file(f)
+    if (parsed === undefined) continue
+    const own = dedupe(callsIn(parsed, r, clients, null))
+    if (own.length === 0) continue
+    sharedParts.push({ name: componentName(f), file: f, screens: screens.filter((s) => reach.get(s.path)?.has(f) === true).map((s) => s.path), calls: own })
+  }
+  return { screens, calls, layout, shared: sharedParts, reach: new Map([...reach].map(([k, v]) => [k, [...v.keys()]])), sections }
 }
 
 /** One node of a route tree, from JSX or from a route object. */
@@ -145,6 +171,23 @@ function routeDecls(file: ParsedFile, r: Resolver): RouteDecl[] {
     return { names, redirect }
   }
   const fileOf = (name: string): string | null => imports.get(name)?.path ?? (localComponent(src, name) !== undefined ? file.path : null)
+  // A wrapper written in the routes file itself — an onboarding gate around
+  // the layout — renders components of its own; those are what it calls
+  // through. The routes file is never followed whole: it imports every page.
+  const filesOf = (name: string): string[] => {
+    const own = localComponent(src, name)
+    if (own === undefined) { const f = fileOf(name); return f === null || f === file.path ? [] : [f] }
+    const out: string[] = []
+    const visit = (n: ts.Node): void => {
+      if ((ts.isJsxSelfClosingElement(n) || ts.isJsxOpeningElement(n)) && ts.isIdentifier(n.tagName)) {
+        const f = imports.get(n.tagName.text)?.path
+        if (f !== undefined && f !== file.path && !routerNames.has(n.tagName.text)) out.push(f)
+      }
+      ts.forEachChild(n, visit)
+    }
+    visit(own)
+    return out
+  }
   const isGate = (names: readonly string[]): boolean => names.some((n) => {
     const own = localComponent(src, n)
     if (own !== undefined) return rendersNavigate(own, routerNames)
@@ -163,7 +206,7 @@ function routeDecls(file: ParsedFile, r: Resolver): RouteDecl[] {
       component: page, componentFile: page === null ? null : fileOf(page),
       // The routes file itself imports every page; following it from a layout
       // would credit the layout with every screen's calls.
-      componentFiles: names.map(fileOf).filter((f): f is string => f !== null && f !== file.path),
+      componentFiles: [...new Set(names.flatMap(filesOf))],
       layout: children.length > 0, redirect, catchAll: path === '*' || path === '/*' && children.length === 0,
       gate, underGate,
     })

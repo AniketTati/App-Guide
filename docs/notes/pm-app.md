@@ -6,7 +6,9 @@ built, in what order, and when to stop. Status lives in [../PLAN.md](../PLAN.md)
 §1; reasoning in [../decisions.md](../decisions.md) §19.
 
 **Revised after five critiques** — developer, the PM themselves, product,
-design, go-to-market. What changed and why: decisions #102–#108.
+design, go-to-market. What changed and why: decisions #102–#108. **Built, then
+critiqued again** by the PM, a designer and a code review, and fixed: §9 and
+decisions #116–#126.
 
 ## 1. Who, and what they already do
 
@@ -228,3 +230,28 @@ notarised distribution, a node-graph map, a permissions matrix labelled with
 permission names, editable rule sets, live file watching (re-read when a session
 stops or a branch moves), and publishing any finding about draft-legal's
 security.
+
+## 9. After the first build
+
+Three critiques of the running app, against draft-legal. What they changed:
+
+- **Facts before looks.** The tracker is read in all its shapes, with the
+  "What's left" line as each open task's latest word; a Check lists what it
+  can't read and gives no all-clear while any is there; roles come from the
+  branch's own table; a 404 after a lookup handed the caller is a check.
+- **A Check is a decision screen.** A one-sentence answer, then a verdict —
+  criteria written, merges cleanly, pushed, tests — then what people will
+  notice, then the product changes, then Claude's own words, folded away.
+  Actions stay in reach: mark checked, ready (push and open a PR), send back
+  with notes.
+- **Reads never get in Claude's way**: no git locks, time limits, merges
+  worked out without touching the repository's objects.
+- **Ask writes only what was shown, only on a clean main**; otherwise Claude
+  adds the task first, from the brief.
+- **Design**: one accent for "needs you"; one route line everywhere; the
+  answer as each page's headline; "public on purpose" marks; view as a role.
+
+Still open, not built: a Claude session's own title beside its worktree;
+pull-request and CI state (needs the network and the PM's GitHub sign-in);
+the receipt hook offered from inside the app; reading the Python agents
+service.

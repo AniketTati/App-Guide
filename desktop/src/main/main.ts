@@ -1,8 +1,9 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, Notification, shell, utilityProcess, type IpcMainInvokeEvent, type UtilityProcess } from 'electron'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { pathToFileURL } from 'node:url'
 import { gitBinary, git } from '../../../src/git/repo.js'
 import { METHODS, type Api, type AskInput, type CheckView, type DraftView, type HomeView, type Method, type ProductView, type Project } from '../shared/api.js'
 import type { HomeResult, ProjectState } from '../core/service.js'
@@ -15,20 +16,47 @@ import type { HomeResult, ProjectState } from '../core/service.js'
 interface State { projects: Project[]; projectState: Record<string, ProjectState> }
 let state: State = { projects: [], projectState: {} }
 const statePath = (): string => join(app.getPath('userData'), 'state.json')
+/** Set when state.json existed but couldn't be read: nothing is saved over it. */
+let unreadable = false
 
 async function loadState(): Promise<void> {
-  try {
-    const loaded = JSON.parse(await readFile(statePath(), 'utf8')) as Partial<State>
-    state = { projects: loaded.projects ?? [], projectState: loaded.projectState ?? {} }
-  } catch {
-    // first run, or an unreadable file: start empty rather than guess
+  for (const path of [statePath(), `${statePath()}.bak`]) {
+    let text: string
+    try { text = await readFile(path, 'utf8') } catch { continue }
+    try {
+      const loaded = JSON.parse(text) as Partial<State>
+      state = { projects: loaded.projects ?? [], projectState: loaded.projectState ?? {} }
+      unreadable = false
+      return
+    } catch {
+      unreadable = true
+    }
+  }
+  if (unreadable) {
+    // Keep the broken file for whoever looks, and start from nothing — never
+    // save an empty state over what might still be recovered.
+    const kept = `${statePath()}.unreadable-${Date.now()}`
+    await rename(statePath(), kept).catch(() => undefined)
+    unreadable = false
+    await dialog.showMessageBox({ type: 'warning', message: 'App Guide couldn’t read what it remembered', detail: `Your products and checks will need adding again. The unreadable file was kept as ${basename(kept)}.` })
   }
 }
-async function saveState(): Promise<void> {
-  await mkdir(app.getPath('userData'), { recursive: true })
-  const tmp = `${statePath()}.${process.pid}.tmp`
-  await writeFile(tmp, JSON.stringify(state, null, 2), 'utf8')
-  await rename(tmp, statePath())
+
+// One save at a time, each through its own temporary file, the previous
+// version kept as a backup: overlapping saves once raced each other away.
+let saving: Promise<void> = Promise.resolve()
+function saveState(): Promise<void> {
+  const text = JSON.stringify(state, null, 2)
+  const run = async (): Promise<void> => {
+    await mkdir(app.getPath('userData'), { recursive: true })
+    const tmp = `${statePath()}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`
+    await writeFile(tmp, text, 'utf8')
+    if (existsSync(statePath())) await copyFile(statePath(), `${statePath()}.bak`).catch(() => undefined)
+    await rename(tmp, statePath())
+  }
+  const p = saving.then(run, run)
+  saving = p.catch(() => undefined)
+  return p
 }
 
 const find = (id: string): Project => {
@@ -38,8 +66,22 @@ const find = (id: string): Project => {
 }
 const stateOf = (id: string): ProjectState => (state.projectState[id] ??= { checked: {} })
 // Not "cache": Chromium keeps its own "Cache" in the same folder, and a Mac's
-// file names ignore case, so the two would be one folder it may empty.
-const cacheDir = (id: string): string => join(app.getPath('userData'), 'facts', id)
+// file names ignore case, so the two would be one folder it may empty. One
+// folder per build of the reader: facts an older build read are never
+// compared with a newer build's, which made every extractor change look like
+// something Claude did.
+const ENGINE = (() => {
+  try { return createHash('sha256').update(readFileSync(join(__dirname, 'worker.cjs'))).digest('hex').slice(0, 12) } catch { return 'dev' }
+})()
+const factsRoot = (): string => join(app.getPath('userData'), 'facts')
+const cacheDir = (id: string): string => join(factsRoot(), ENGINE, id)
+
+/** Folders older builds left behind. */
+async function sweepCaches(): Promise<void> {
+  for (const entry of await readdir(factsRoot()).catch(() => [] as string[])) {
+    if (entry !== ENGINE) await rm(join(factsRoot(), entry), { recursive: true, force: true }).catch(() => undefined)
+  }
+}
 
 // ── The reader, in a utility process, one request at a time ──────────────────
 let worker: UtilityProcess | null = null
@@ -65,11 +107,22 @@ function reader(): UtilityProcess {
   return w
 }
 
+/** Long enough for a first read of a very large repository. A read that
+ *  takes longer is stuck — a hung git, an unreachable file — and the reader
+ *  is restarted rather than left to hold every screen. */
+const READ_LIMIT = 5 * 60_000
+
 let queue: Promise<unknown> = Promise.resolve()
 function ask<T>(req: Record<string, unknown>): Promise<T> {
   const run = (): Promise<T> => new Promise<T>((resolve, reject) => {
     const id = nextId++
-    waiting.set(id, { resolve: resolve as (v: unknown) => void, reject })
+    const timer = setTimeout(() => {
+      if (!waiting.has(id)) return
+      waiting.delete(id)
+      reject(new Error('Reading took too long and was stopped. Try again — if it keeps happening, the repository may be very large or a file may be unreachable.'))
+      worker?.kill()
+    }, READ_LIMIT)
+    waiting.set(id, { resolve: (v) => { clearTimeout(timer); resolve(v as T) }, reject: (e) => { clearTimeout(timer); reject(e) } })
     reader().postMessage({ id, ...req })
   })
   const p = queue.then(run, run)
@@ -79,7 +132,7 @@ function ask<T>(req: Record<string, unknown>): Promise<T> {
 
 // ── What the page may ask for ─────────────────────────────────────────────────
 const lastHome = new Map<string, HomeResult>()
-const lastCheck = new Map<string, { head: string; dirty: number }>()
+const lastCheck = new Map<string, { head: string; dirty: number; fingerprint: string }>()
 
 const handlers: { [M in Method]: (...args: string[]) => ReturnType<Api[M]> } = {
   async projects() { return state.projects },
@@ -118,19 +171,21 @@ const handlers: { [M in Method]: (...args: string[]) => ReturnType<Api[M]> } = {
     const result = await ask<HomeResult>({ method: 'home', project, state: ps, cacheDir: cacheDir(id) })
     lastHome.set(id, result)
     // The first look sets the baseline, as the receipt's first run does: from
-    // here on, Home shows what changes on main.
-    if (ps.seenMain === undefined) { ps.seenMain = result.baseHead; await saveState() }
+    // here on, Home shows what changes on main. A baseline main's rewritten
+    // history no longer has starts again, and Home says so.
+    if (ps.seenMain === undefined || result.view.mainReset) { ps.seenMain = result.baseHead; await saveState() }
     return result.view
   },
 
   async product(id): Promise<ProductView> {
-    return ask<ProductView>({ method: 'product', project: find(id), cacheDir: cacheDir(id) })
+    const view = await ask<ProductView>({ method: 'product', project: find(id), cacheDir: cacheDir(id) })
+    return { ...view, publicOk: stateOf(id).publicOk ?? [] }
   },
 
   async check(id, workId): Promise<CheckView> {
     const project = find(id)
-    const r = await ask<{ view: CheckView; head: string; dirty: number }>({ method: 'check', project, workId, state: stateOf(id), cacheDir: cacheDir(id) })
-    lastCheck.set(`${id}\u0000${workId}`, { head: r.head, dirty: r.dirty })
+    const r = await ask<{ view: CheckView; fingerprint: string; head: string }>({ method: 'check', project, workId, state: stateOf(id), cacheDir: cacheDir(id) })
+    lastCheck.set(`${id}\u0000${workId}`, { head: r.head, dirty: r.view.work.uncommitted, fingerprint: r.fingerprint })
     return r.view
   },
 
@@ -142,9 +197,20 @@ const handlers: { [M in Method]: (...args: string[]) => ReturnType<Api[M]> } = {
   },
 
   async markChecked(id, workId) {
+    // What was read, not what is there now: checked means "as I saw it".
     const seen = lastCheck.get(`${id}\u0000${workId}`) ?? lastHome.get(id)?.work.find((w) => w.id === workId)
     if (seen === undefined) return
-    stateOf(id).checked[workId] = { at: new Date().toISOString(), head: seen.head, dirty: seen.dirty }
+    stateOf(id).checked[workId] = { at: new Date().toISOString(), head: seen.head, dirty: seen.dirty, fingerprint: seen.fingerprint }
+    await saveState()
+  },
+
+  async markPublic(id, route, on) {
+    if (!/^[A-Z]+ \/\S{0,500}$/.test(route)) throw new Error('not a route')
+    const ps = stateOf(id)
+    const list = new Set(ps.publicOk ?? [])
+    if (on === 'on') list.add(route)
+    else list.delete(route)
+    ps.publicOk = [...list].sort()
     await saveState()
   },
 
@@ -186,12 +252,14 @@ function askInput(json: string): AskInput {
   }
 }
 
-/** Only our own page may call, only listed methods, and only with strings —
- *  ids and text, never objects that could carry a path or a command. */
+/** Only our own page may call — its exact file, or the development server
+ *  when not packaged — only listed methods, and only with strings: ids and
+ *  text, never objects that could carry a path or a command. */
+const PAGE = pathToFileURL(join(__dirname, 'renderer', 'index.html')).href
 function allowed(event: IpcMainInvokeEvent): boolean {
-  const url = event.senderFrame?.url ?? ''
+  const url = (event.senderFrame?.url ?? '').replace(/[?#].*$/, '')
   const dev = process.env['APPGUIDE_DEV_URL']
-  return url.startsWith('file://') || (dev !== undefined && url.startsWith(dev))
+  return url === PAGE || (!app.isPackaged && dev !== undefined && /^http:\/\/(127\.0\.0\.1|localhost):\d+\/?$/.test(dev) && url.startsWith(dev))
 }
 
 ipcMain.handle('api', async (event, method: unknown, args: unknown) => {
@@ -202,30 +270,42 @@ ipcMain.handle('api', async (event, method: unknown, args: unknown) => {
 })
 
 // ── Noticing new work between looks ──────────────────────────────────────────
-const lastPoll = new Map<string, { baseHead: string; work: Map<string, { head: string; ahead: number; branch: string | null }> }>()
+const lastPoll = new Map<string, { baseHead: string; work: Map<string, { head: string; ahead: number; branch: string | null; fingerprint: string }> }>()
+let polling = false
 
 async function poll(): Promise<void> {
+  // A slow read must not stack a second poll behind it every minute.
+  if (polling) return
+  polling = true
+  try { await pollAll() } finally { polling = false }
+}
+
+async function pollAll(): Promise<void> {
   for (const project of state.projects) {
-    let r: { baseHead: string; work: { id: string; branch: string | null; head: string; ahead: number }[] }
+    let r: { baseHead: string; work: { id: string; branch: string | null; head: string; ahead: number; fingerprint: string }[] }
     try { r = await ask({ method: 'poll', project }) } catch { continue }
     const before = lastPoll.get(project.id)
-    const now = new Map(r.work.map((w) => [w.id, { head: w.head, ahead: w.ahead, branch: w.branch }]))
+    const now = new Map(r.work.map((w) => [w.id, { head: w.head, ahead: w.ahead, branch: w.branch, fingerprint: w.fingerprint }]))
     lastPoll.set(project.id, { baseHead: r.baseHead, work: now })
     if (before === undefined) continue // the first poll is the baseline
     const news: string[] = []
+    const moved: string[] = []
     for (const [id, w] of now) {
       const was = before.work.get(id)
       const name = w.branch ?? basename(id)
       if (was === undefined) news.push(`New work in flight: ${name}`)
       else if (w.head !== was.head && w.ahead > was.ahead) news.push(`${name}: ${w.ahead - was.ahead} new commit${w.ahead - was.ahead === 1 ? '' : 's'}`)
+      if (was !== undefined && was.fingerprint !== w.fingerprint) moved.push(id)
     }
     if (r.baseHead !== before.baseHead) news.push('Main moved — see what changed')
     if (news.length > 0) {
       const n = new Notification({ title: project.name, body: news.slice(0, 3).join('\n') })
       n.on('click', () => { const win = BrowserWindow.getAllWindows()[0]; win?.show(); win?.focus() })
       n.show()
-      for (const win of BrowserWindow.getAllWindows()) win.webContents.send('changed', project.id)
     }
+    // Edits Claude is still making don't deserve a notification — but a
+    // Check that is open on that work should say it has moved.
+    if (news.length > 0 || moved.length > 0) for (const win of BrowserWindow.getAllWindows()) win.webContents.send('changed', project.id, moved)
   }
 }
 
@@ -264,16 +344,22 @@ function createWindow(): void {
     })
   }
   const dev = process.env['APPGUIDE_DEV_URL']
+  const hash = process.env['APPGUIDE_START']
   if (dev !== undefined) void win.loadURL(dev)
-  else void win.loadFile(join(__dirname, 'renderer', 'index.html'))
+  else void win.loadFile(join(__dirname, 'renderer', 'index.html'), hash === undefined ? {} : { hash })
 }
 
 app.setName('App Guide')
+// Settings for development only are ignored by the installed app: a page from
+// another address, or another git, must never be one an environment variable
+// can slip in.
+if (app.isPackaged) { delete process.env['APPGUIDE_DEV_URL']; delete process.env['APPGUIDE_GIT'] }
 // For automated checks only: a separate place for what the app remembers,
 // so a test run never touches the PM's own.
 if (process.env['APPGUIDE_USER_DATA'] !== undefined) app.setPath('userData', process.env['APPGUIDE_USER_DATA'])
 void app.whenReady().then(async () => {
   await loadState()
+  void sweepCaches()
   await gitBinary().catch(() => dialog.showErrorBox('git is missing', 'App Guide needs git to read branches and history. Installing Xcode’s command line tools provides it.'))
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     { role: 'appMenu' },

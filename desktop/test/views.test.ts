@@ -36,7 +36,8 @@ describe('the status bar', () => {
       { kind: 'gap', reason: 'unsupported-language', subject: 'Python', detail: '82 Python files not read — routes, data and calls in them are not listed', where: where('apps/agents/main.py') },
       ...Array.from({ length: 3 }, (_, i): Fact => ({ kind: 'gap', reason: 'raw-sql', subject: `a.ts:${i}`, detail: 'hand-written SQL', where: where('a.ts', i) })),
     ]
-    expect(blindSpots(gaps).map((b) => b.short)).toEqual(['82 Python files', '3 hand-written queries'])
+    // Where they are is part of the name: the PM knows apps/agents as the AI service.
+    expect(blindSpots(gaps).map((b) => b.short)).toEqual(['82 Python files, in apps/agents', '3 hand-written queries'])
   })
 })
 
@@ -47,6 +48,81 @@ describe('the product’s counts', () => {
       { kind: 'write', table: 'contract', module: 'a', where: where('a.ts') },
       { kind: 'read', table: 'contract', module: 'b', where: where('b.ts') },
     ]
-    expect(productCounts(facts)).toMatchObject({ routes: 2, noCheck: 1, tables: 1 })
+    expect(productCounts(facts)).toMatchObject({ routes: 2, noCheck: 1, noCheckUnreviewed: 1, tables: 1 })
+    // One the PM says is meant to be open no longer asks for attention.
+    expect(productCounts(facts, ['GET /health'])).toMatchObject({ noCheck: 1, noCheckUnreviewed: 0 })
+  })
+})
+
+describe('who may call a route in a Check', () => {
+  it('reads the role table the way Product does, wildcards and scopes included', async () => {
+    const { whoFrom } = await import('../src/core/views.js')
+    const roles = {
+      tables: [{ name: 'ROLES', where: 'p.ts:1', roles: ['ADMIN', 'SALES', 'VIEWER'], rows: [
+        { resource: '*', cells: { ADMIN: [{ actions: ['*'], scope: 'org' }], SALES: [], VIEWER: [] } },
+        { resource: 'contract', cells: { ADMIN: [{ actions: ['*'], scope: 'org' }], SALES: [{ actions: ['view', 'edit'], scope: 'own' }], VIEWER: [{ actions: ['view'], scope: 'org' }] } },
+      ] }],
+      routes: {},
+    }
+    expect(whoFrom(["requirePermission('edit', 'contract')", 'ownScopeGuard(x)'], roles)).toEqual([{ role: 'ADMIN', scope: 'org' }, { role: 'SALES', scope: 'own' }])
+    expect(whoFrom(['requireUser'], roles)).toBeNull()
+  })
+})
+
+describe('what a Check says first', () => {
+  it('never gives an all-clear over what it could not read', async () => {
+    const { sentenceOf } = await import('../src/core/views.js')
+    const empty = { route: [], data: [], service: [], package: [], code: [] }
+    const base = {
+      changes: empty, touched: [], roleChanges: [], screens: { changed: [], added: [], removed: [] },
+      schema: { tables: { added: [], removed: [], changed: [] }, lists: { added: [], removed: [], changed: [] }, migrations: [] },
+      unmatched: { added: [], fixed: [] }, unseen: [],
+    }
+    expect(sentenceOf(base as never)).toMatch(/^No new routes, checks, data, packages or services\./)
+    expect(sentenceOf({ ...base, unseen: [{ label: 'Python', files: ['a.py', 'b.py'] }] } as never)).toBe(
+      'Nothing changed in the parts I can read — but it changes Python (2 files), which I can’t read. Ask Claude what those changes do before you merge.')
+    expect(sentenceOf({ ...base, roleChanges: [{ role: 'FINANCE', resource: 'renewal', before: 'view', after: 'view, approve' }],
+      schema: { ...base.schema, tables: { added: ['FieldRun', 'FieldSuggestion'], removed: [], changed: [] } } } as never)).toBe('It changes what 1 role may do and adds 2 tables.')
+    // A route that was there before but does something else now is a change.
+    expect(sentenceOf({ ...base, touched: [{}, {}], screens: { changed: [{ how: 'page' }], added: [], removed: [] } } as never)).toBe('It changes the code behind 2 existing routes and changes 1 screen.')
+  })
+
+  it('reads a change to the role table as what each role may now do', async () => {
+    const { roleChanges } = await import('../src/core/views.js')
+    const table = (finance: { actions: string[]; scope: string | null }[]) => ({ tables: [{ name: 'ROLES', where: 'p.ts:1', roles: ['ADMIN', 'FINANCE'], rows: [
+      { resource: 'renewal', cells: { ADMIN: [{ actions: ['*'], scope: 'org' }], FINANCE: finance } },
+    ] }], routes: {} })
+    expect(roleChanges(table([{ actions: ['view'], scope: 'org' }]), table([{ actions: ['view', 'approve'], scope: 'org' }]))).toEqual([
+      { role: 'FINANCE', resource: 'renewal', before: 'view', after: 'view, approve' },
+    ])
+    expect(roleChanges(table([]), table([{ actions: ['view'], scope: 'own' }]))).toEqual([{ role: 'FINANCE', resource: 'renewal', before: 'nothing', after: 'view (own only)' }])
+  })
+})
+
+describe('work in flight', () => {
+  const work = (over: Partial<import('../../src/check/work.js').Work>): import('../../src/check/work.js').Work => ({
+    id: '/w', branch: 'fix/x', path: '/w', primary: false, head: 'h1', mergeBase: 'm', ahead: 1, uncommitted: [], tasks: ['EE1'], edited: [], plan: null,
+    changed: ['a.ts'], lastCommit: new Date().toISOString(), fingerprint: 'f1', ...over,
+  })
+  const tasks = new Map([['EE1', { id: 'EE1', title: 'Every action is a decision', status: 'DONE' } as never]])
+
+  it('is ready for you when it is committed, every task is done, and you have not checked it', async () => {
+    const { workView } = await import('../src/core/views.js')
+    expect(workView(work({}), [], tasks, undefined).ready).toBe(true)
+    expect(workView(work({ uncommitted: ['b.ts'] }), [], tasks, undefined).ready).toBe(false)
+    expect(workView(work({}), [], tasks, { at: 'x', head: 'h1', dirty: 0, fingerprint: 'f1' }).ready).toBe(false)
+  })
+
+  it('knows it moved when an uncommitted file changed, not just when the count did', async () => {
+    const { workView } = await import('../src/core/views.js')
+    const checked = { at: 'x', head: 'h1', dirty: 1, fingerprint: 'f1' }
+    expect(workView(work({ uncommitted: ['b.ts'], fingerprint: 'f1' }), [], tasks, checked).movedSinceCheck).toBe(false)
+    expect(workView(work({ uncommitted: ['b.ts'], fingerprint: 'f2' }), [], tasks, checked).movedSinceCheck).toBe(true)
+  })
+
+  it('is named by its plan before its first commit, and set apart when weeks old', async () => {
+    const { workView } = await import('../src/core/views.js')
+    expect(workView(work({ tasks: [], plan: { file: 'docs/39-X.md', title: 'Capture, fix and trust contract data' } }), [], tasks, undefined).label).toBe('Capture, fix and trust contract data')
+    expect(workView(work({ path: null, lastCommit: '2026-07-01T00:00:00Z' }), [], tasks, undefined, Date.parse('2026-09-26T00:00:00Z'))).toMatchObject({ stale: true, where: 'branch', ready: false })
   })
 })

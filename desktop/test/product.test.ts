@@ -22,9 +22,12 @@ function product(): Product {
       ['/contracts/:id', [{ route: open, call: { method: 'POST', path: '/api/v1/telemetry', file: 'b.tsx', line: 1, via: null } }]],
     ]),
     layout: [],
+    shared: [{ name: 'UploadModal', file: 'u.tsx', screens: ['/contracts', '/contracts/:id'], links: [{ route: hook, call: { method: 'POST', path: '/api/internal/hook', file: 'u.tsx', line: 1, via: null } }] }],
     unmatched: [],
+    reach: new Map([['/contracts', ['a.tsx', 'u.tsx']]]),
     sections: [{ label: 'Workspace', items: [{ to: '/contracts', label: 'Contracts' }] }],
     data: new Map([[list, [{ table: 'contract', kind: 'read', file: 'r.ts', line: 2, via: null }]]]),
+    background: { queues: [{ name: 'agents', declared: { file: 'q.ts', line: 1 }, jobs: [{ name: 'review', addedAt: [{ file: 'r.ts', line: 3 }] }], workers: [{ file: 'w.ts', line: 9 }], repeats: [] }], timers: [], sockets: [] },
     roles: [{ name: 'ROLES', file: 'p.ts', line: 1, keyedByEnum: true, roles: [
       { role: 'ADMIN', grants: [{ action: '*', resource: '*', scope: 'org' }] },
       { role: 'SALES', grants: [{ action: 'view', resource: 'contract', scope: 'own' }] },
@@ -48,13 +51,19 @@ describe('the Product view', () => {
     expect(r.data).toEqual([{ table: 'contract', kind: 'read', via: null }])
   })
 
-  it('lists routes no screen calls behind the scenes', () => {
-    expect(view.behind.map((r) => r.path)).toEqual(['/api/internal/hook'])
+  it('lists a shared part once, with its screens — and its routes are not “behind the scenes”', () => {
+    expect(view.shared).toEqual([expect.objectContaining({ name: 'UploadModal', screens: ['Contracts', 'Contract detail'] })])
+    expect(view.shared[0]!.routes.map((r) => r.path)).toEqual(['/api/internal/hook'])
+    expect(view.behind.map((r) => r.path)).toEqual([])
   })
 
   it('shows a grant on everything in every row, not just its own', () => {
     const t = view.roles!.tables[0]!
     expect(t.rows.find((row) => row.resource === 'contract')?.cells['ADMIN']).toEqual([{ actions: ['*'], scope: 'org' }])
     expect(view.roles!.routes['view contract']).toEqual([{ method: 'GET', path: '/api/v1/contracts' }])
+  })
+
+  it('lists background jobs by queue, with where each is added and done', () => {
+    expect(view.background.queues).toEqual([{ name: 'agents', declared: 'q.ts:1', repeats: 0, workers: ['w.ts:9'], jobs: [{ name: 'review', addedAt: ['r.ts:3'] }] }])
   })
 })

@@ -6,23 +6,42 @@ import { Home } from './Home.js'
 import { CheckScreen } from './Check.js'
 import { ProductScreen } from './Product.js'
 import { WhoCanScreen } from './WhoCan.js'
-import { AskSheet, type Pick } from './Ask.js'
-import { Button, Spinner } from './ui.js'
+import { AskSheet, type AskPrefill } from './Ask.js'
+import { Button, Problem, Spinner } from './ui.js'
 
-type Screen = { name: 'home' } | { name: 'product' } | { name: 'who' } | { name: 'check'; workId: string }
+type Screen = { name: 'home' } | { name: 'product'; start?: 'open' } | { name: 'who' } | { name: 'check'; workId: string }
+
+/** Where to start, from the address: #product, #product=open, #who, #check=<work>, #ask. */
+function fromHash(): { screen: Screen; ask: boolean } {
+  const h = decodeURIComponent(window.location.hash.replace(/^#/, ''))
+  if (h === 'product') return { screen: { name: 'product' }, ask: false }
+  if (h === 'product=open') return { screen: { name: 'product', start: 'open' }, ask: false }
+  if (h === 'who') return { screen: { name: 'who' }, ask: false }
+  if (h === 'ask') return { screen: { name: 'home' }, ask: true }
+  if (h.startsWith('check=')) return { screen: { name: 'check', workId: h.slice('check='.length) }, ask: false }
+  return { screen: { name: 'home' }, ask: false }
+}
 
 export function App() {
   const [projects, setProjects] = useState<Project[] | null>(null)
   const [current, setCurrent] = useState<string | null>(null)
-  const [screen, setScreen] = useState<Screen>({ name: 'home' })
+  const [screen, setScreen] = useState<Screen>(() => fromHash().screen)
   const [home, setHome] = useState<HomeView | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-  const [asking, setAsking] = useState<Pick[] | null>(null)
+  const [asking, setAsking] = useState<AskPrefill | null>(() => (fromHash().ask ? { picks: [] } : null))
+  const ask = (prefill: AskPrefill = { picks: [] }): void => setAsking(prefill)
+
+  // A link to a screen works while the app is open, not only at start.
+  useEffect(() => {
+    const onHash = (): void => { const h = fromHash(); setScreen(h.screen); if (h.ask) setAsking((a) => a ?? { picks: [] }) }
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [])
 
   // ⌘N anywhere: ask for a change.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'n') { e.preventDefault(); setAsking((a) => a ?? []) } }
+    const onKey = (e: KeyboardEvent): void => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'n') { e.preventDefault(); setAsking((a) => a ?? { picks: [] }) } }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
@@ -60,19 +79,19 @@ export function App() {
 
   return (
     <Frame
-      action={<button type="button" className="btn btn-primary topbar-action" onClick={() => setAsking([])}>Ask for a change <span className="kbd">⌘N</span></button>}
+      action={<button type="button" className="btn" onClick={() => ask()}>Ask for a change <span className="kbd">⌘N</span></button>}
       title={project.name}
       subtitle={home !== null && home.project.id === project.id ? `against ${home.base}` : undefined}
       side={
         <nav className="nav">
           <button type="button" className={`nav-item ${screen.name === 'home' ? 'active' : ''}`} onClick={() => setScreen({ name: 'home' })}>
-            Home{home !== null && home.waiting.length > 0 && <span className="badge">{home.waiting.length}</span>}
+            Home{home !== null && home.project.id === project.id && waitingCount(home) > 0 && <span className="badge">{waitingCount(home)}</span>}
           </button>
           <button type="button" className={`nav-item ${screen.name === 'product' ? 'active' : ''}`} onClick={() => setScreen({ name: 'product' })}>Product</button>
           <button type="button" className={`nav-item ${screen.name === 'who' ? 'active' : ''}`} onClick={() => setScreen({ name: 'who' })}>Who can do what</button>
           <div className="nav-group">Products</div>
           {projects.map((p) => (
-            <button type="button" key={p.id} className={`nav-item nav-product ${p.id === project.id ? 'active' : ''}`} title={p.path}
+            <button type="button" key={p.id} className={`nav-item nav-product ${p.id === project.id ? 'current' : ''}`} title={p.path}
               onClick={() => { if (p.id !== project.id) { setHome(null); setScreen({ name: 'home' }); setCurrent(p.id) } else setScreen({ name: 'home' }) }}>
               {p.name}
             </button>
@@ -82,16 +101,19 @@ export function App() {
       }
       status={home !== null && home.project.id === project.id ? <StatusBar home={home} /> : null}
     >
-      {error !== null && <div className="error"><strong>Couldn’t read {project.name}.</strong> {error} <Button onClick={() => void load(project.id)}>Try again</Button></div>}
+      {error !== null && <div className="page"><Problem title={`Couldn’t read ${project.name}.`} detail={error} onRetry={() => void load(project.id)} /></div>}
       {screen.name === 'home' && (home === null || home.project.id !== project.id
         ? (loading && <div className="center"><Spinner label={`Reading ${project.name}… The first read takes about ten seconds; after that it’s quick.`} /></div>)
         : <Home home={home} refreshing={loading} onRefresh={() => void load(project.id)} onCheck={(workId) => setScreen({ name: 'check', workId })}
-            onSeen={async () => { await api.markSeen(project.id); await load(project.id) }} />)}
-      {screen.name === 'product' && <ProductScreen projectId={project.id} onAsk={(picks) => setAsking(picks)} />}
+            onSeen={() => { void api.markSeen(project.id).then(() => load(project.id)) }}
+            onOpenChecks={() => setScreen({ name: 'product', start: 'open' })}
+            onAsk={(what, why) => ask({ picks: [], what, why })} />)}
+      {screen.name === 'product' && <ProductScreen key={screen.start ?? 'all'} projectId={project.id} {...(screen.start === undefined ? {} : { start: screen.start })} onAsk={ask} />}
       {screen.name === 'who' && <WhoCanScreen projectId={project.id} />}
       {asking !== null && <AskSheet projectId={project.id} initial={asking} onClose={() => setAsking(null)} />}
       {screen.name === 'check' && (
-        <CheckScreen projectId={project.id} workId={screen.workId} onBack={() => { setScreen({ name: 'home' }); void load(project.id) }} />
+        <CheckScreen projectId={project.id} workId={screen.workId} onBack={() => { setScreen({ name: 'home' }); void load(project.id) }}
+          onAsk={(what, why) => ask({ picks: [], what, why })} />
       )}
     </Frame>
   )
@@ -113,15 +135,21 @@ function Frame({ children, side, title, subtitle, status, action }: { children: 
   )
 }
 
+/** Tasks waiting, and finished work waiting for a Check. */
+const waitingCount = (home: HomeView): number => home.waiting.length + home.work.filter((w) => w.ready).length
+
+/** Parts of the product it can't read, named — "82 Python files, in
+ *  apps/agents" — and the finer print on hover. */
 function StatusBar({ home }: { home: HomeView }) {
-  const shown = home.blind.slice(0, 3)
+  const parts = home.blind.filter((b) => / files?(, in |$)/.test(b.short) && !/that didn’t parse/.test(b.short))
+  const rest = home.blind.filter((b) => !parts.includes(b))
   return (
     <>
       <span className="status-label">Can’t read</span>
       {home.blind.length === 0
         ? <span>everything on main was readable</span>
-        : shown.map((b, i) => <span key={i} className="status-item" title={`${b.text}\nfirst one: ${b.example}`}><span className="hatch" />{b.short}</span>)}
-      {home.blind.length > shown.length && <span className="status-more" title={home.blind.slice(shown.length).map((b) => b.text).join('\n')}>+{home.blind.length - shown.length} more</span>}
+        : parts.map((b, i) => <span key={i} className="status-item" title={`${b.text}\nfirst one: ${b.example}`}><span className="hatch" />{b.short}</span>)}
+      {rest.length > 0 && <span className="status-more" title={rest.map((b) => b.text).join('\n')}>{parts.length > 0 ? `+${rest.length} smaller` : `${rest.length} smaller gaps`}</span>}
       <span className="status-spacer" />
       <span className="status-read">read {clock(home.readAt)}</span>
     </>

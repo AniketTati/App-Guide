@@ -2,8 +2,22 @@ import { checkWork, home, type ProjectState } from '../core/service.js'
 import { listWork } from '../../../src/check/work.js'
 import { productOnMain } from '../core/product.js'
 import { addDraftedTask, draftTask } from '../core/ask.js'
+import { readdir, rm, stat } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { AskInput } from '../shared/api.js'
 import type { Project } from '../shared/api.js'
+
+// Scratch copies a crash left behind: every read makes one and removes it,
+// but a killed reader can't. An hour old is nobody's.
+void (async () => {
+  for (const name of await readdir(tmpdir()).catch(() => [] as string[])) {
+    if (!/^appguide-(commit|product|merge)-/.test(name)) continue
+    const path = join(tmpdir(), name)
+    const st = await stat(path).catch(() => null)
+    if (st !== null && Date.now() - st.mtimeMs > 3_600_000) await rm(path, { recursive: true, force: true }).catch(() => undefined)
+  }
+})()
 
 /**
  * Runs in an Electron utility process, never in the window's: a full read of
@@ -31,7 +45,7 @@ port.on('message', async ({ data: req }) => {
     else {
       // Cheap: git only. Used to notice new commits between looks.
       const { baseHead, work } = await listWork(req.project.path)
-      result = { baseHead, work: work.map((w) => ({ id: w.id, branch: w.branch, head: w.head, dirty: w.uncommitted.length, ahead: w.ahead })) }
+      result = { baseHead, work: work.map((w) => ({ id: w.id, branch: w.branch, head: w.head, dirty: w.uncommitted.length, ahead: w.ahead, fingerprint: w.fingerprint })) }
     }
     port.postMessage({ id: req.id, ok: true, result })
   } catch (err) {

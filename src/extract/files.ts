@@ -18,7 +18,7 @@ const SKIP_DIRS = new Set([
  * changes, said nothing about why, and its all-clear read as a clean bill of
  * health.
  */
-const UNREAD: Readonly<Record<string, string>> = {
+export const UNREAD: Readonly<Record<string, string>> = {
   py: 'Python', go: 'Go', rb: 'Ruby', rs: 'Rust', java: 'Java', kt: 'Kotlin',
   php: 'PHP', cs: 'C#', swift: 'Swift', scala: 'Scala', ex: 'Elixir', exs: 'Elixir',
   dart: 'Dart', vue: 'Vue components', svelte: 'Svelte components',

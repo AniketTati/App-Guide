@@ -109,7 +109,7 @@ export async function main(argv: string[]): Promise<number> {
       }
       if (values['no-color']) setColor(false)
       const shown = values.all ? { ...report, also: [...report.top, ...report.also], top: [] } : report
-      process.stdout.write(renderTerminal(shown, { hiddenCount: report.totalChanges, voice, command: await commandFor(root) }))
+      process.stdout.write(renderTerminal(shown, { hiddenCount: report.totalChanges, voice, command: await commandFor(root), all: values.all }))
       return 0
     }
     case 'seen': {

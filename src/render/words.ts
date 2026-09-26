@@ -19,6 +19,10 @@ export interface Words {
   why(change: Change): string
   gap(fact: Fact): string
   headline(report: Report): string
+  /** The same line when something changed but none of it was promoted. */
+  quiet(report: Report): string
+  /** How to see the list that was not printed, and how to clear it. */
+  quietFooter(total: number, command: string): string
   footer(total: number, numbered: boolean, cols: number, command: string): string
   labels: { top: string; also: string; gaps: string }
 }
@@ -35,6 +39,9 @@ export const technical: Words = {
   why: () => '',
   gap: (g) => (g.kind === 'gap' ? `${g.subject}: ${g.detail}` : ''),
   headline: (r) => (r.gaps.length > 0 ? 'nothing new in what I can read' : 'nothing new to the shape'),
+  quiet: (r) => (r.gaps.length > 0 ? 'nothing worth a look in what I can read' : 'nothing worth a look'),
+  quietFooter: (total, command) =>
+    `${total} change${total === 1 ? '' : 's'} · see them:\n  ${command} since --all\nclear with:\n  ${command} seen`,
   footer: (total, _numbered, _cols, command) =>
     `${total} change${total === 1 ? '' : 's'} · clear with:\n  ${command} seen`,
   labels: { top: 'NEW TO THIS CODEBASE', also: 'ALSO CHANGED', gaps: 'NOT COVERED' },
@@ -111,6 +118,15 @@ export const plain: Words = {
   headline: (r) => (r.gaps.length > 0
     ? 'nothing new that I can see — but there are parts I could not read'
     : 'nothing new'),
+
+  quiet: (r) => (r.gaps.length > 0
+    ? "nothing worth a look — but there are parts I couldn't read"
+    : 'nothing worth a look'),
+
+  // Nothing was listed, so this is the only way to the list. The count comes
+  // first: it is the one number a reader checks before deciding to look.
+  quietFooter: (total, command) =>
+    `${total} change${total === 1 ? '' : 's'}. To see them all, ask your agent to run:\n  ${command} since --all\nDone looking? Ask your agent to run:\n  ${command} seen`,
 
   // The hint is the point of the footer, so at a narrow terminal the count
   // goes rather than the instruction.

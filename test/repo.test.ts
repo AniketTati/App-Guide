@@ -128,6 +128,9 @@ describe('the headline', () => {
     await writeFile(join(dir, 'src/api.ts'), `${base['src/api.ts']}app.get('/api/c', requireAuth, h)\n`, 'utf8')
     const out = await receipt(dir)
     expect(out).not.toContain('NEW TO THIS CODEBASE')
-    expect(out).toContain('/api/c')
+    // Seen and counted, not promoted — and one --all away.
+    expect(out).toContain('nothing worth a look')
+    expect(out).toContain('1 change')
+    expect(renderTerminal(await run({ root: dir, mark: false }), { columns: 78, all: true })).toContain('/api/c')
   })
 })

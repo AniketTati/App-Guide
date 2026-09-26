@@ -512,7 +512,7 @@ it is defensible.
     enters mid-session gets its receipt, but Claude's copy lands where the
     prompt hook does not read; a worktree's first session is absorbed into its
     first look; the prompt hook needs `sh`, so not Windows.
-96. **What was verified, and what was not.** A simulation fed the hooks Claude
+96. **What was verified, and what was not.** **[UPDATED BY #97]** A simulation fed the hooks Claude
     Code's documented stdin payloads and applied its documented stdout parsing:
     shown once, handed to Claude once, silent on repeat, cleared by `seen`.
     Claude Code 2.1.266, run headless on a test project, loaded the project's
@@ -521,4 +521,24 @@ it is defensible.
     the hooks run there. **Not yet seen: the receipt rendered in a live session,
     and Claude answering "explain #1" from the copy.** This repository's own
     hooks now use the new form, so its next session is that test.
-
+97. **Seen live — Claude's half confirmed, the person's half recorded.** In
+    this repository's own session, the message after a receipt arrived with
+    Claude's copy attached, and Claude Code recorded the receipt as a
+    `hook_system_message`, the entry it makes for a message shown to the user.
+    Whether the desktop app draws that entry has not been confirmed by eye.
+98. **Nothing promoted means a glance, not a list.** The first live receipt
+    spent its whole 26-line budget listing 17 new exports that needed no one.
+    That is G4's failure seen from the other side: a receipt that is always
+    full-length is read like one that always has a top-block entry — not at
+    all. When nothing is promoted it is now the heading ("nothing worth a
+    look"), the sentence, every blind spot, and the two commands: 8 lines
+    instead of 26. The spec's all-clear had asked for this; the build drifted
+    into listing everything. `--all` lists everything with no line budget —
+    it used to end "+1 more: run --all", printed by `--all`. A session like
+    this sends no desktop notification, and Claude's copy mentions `#1` only
+    when the receipt prints numbers.
+99. **The sentence must add up to the count.** Once the sentence is the only
+    description, anything it omits is hidden behind a number. The plain one
+    named URLs, data, services and packages and dropped exports and edits
+    beside a count of 3 that included them. Both voices now end with "and
+    made N other changes" for whatever the clauses did not name.

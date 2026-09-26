@@ -60,11 +60,17 @@ export async function clearDelivery(root: string): Promise<void> {
  *  explicit instruction not to act unprompted, because this arrives beside
  *  whatever the person actually asked for next. */
 function forClaude(receipt: string, command: string): string {
+  // Numbers are printed only in the plain voice, and only when the receipt
+  // lists findings at all. Promising Claude a "#1" the person cannot see is
+  // how "explain #1" turns into a guess about which change was meant.
+  const numbered = /(^|\n)\s*#1\s/.test(receipt)
   return [
     'appguide — a structural report of what changed in this codebase since the user last reviewed it.',
-    'The numbered items (#1, #2, ...) are what the user means by "explain #1" or "fix #1".',
-    `For a self-contained brief on one item, run: ${command} ask <number>`,
-    `To list every change, run: ${command} since --all`,
+    ...(numbered
+      ? ['The numbered items (#1, #2, ...) are what the user means by "explain #1" or "fix #1".',
+         `For a self-contained brief on one item, run: ${command} ask <number>`,
+         `To list every change, run: ${command} since --all`]
+      : [`To list every change, run: ${command} since --all, then ${command} ask <n> for a brief on the n-th one.`]),
     `When the user says they are done looking, run: ${command} seen`,
     'Do not act on this report unless the user asks about it.',
     '',

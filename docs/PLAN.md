@@ -6,7 +6,7 @@ here and nowhere else. Every other document is a detail this one points at.
 If this file and another document disagree, **this file is right and the other
 one is a bug.** Fix it in the same commit that you noticed it.
 
-Last updated: 2026-09-12 (receipt delivery rebuilt for Claude Code; not yet seen live)
+Last updated: 2026-09-26 (short receipt when nothing is worth a look; Claude's copy seen arriving live)
 
 ---
 
@@ -49,9 +49,10 @@ in-session display below, then G3 and the Step 1 evidence test.
 - **Until 2026-09-12 no one inside Claude Code could see a receipt.** A Stop
   hook's plain output goes to a debug log. The receipt now arrives as a
   `systemMessage` for the person and, with their next message, as context for
-  Claude ([decisions.md](decisions.md) §18). The contract is tested and Claude
-  Code was seen loading the hooks, but **no one has yet seen the receipt
-  appear in a live session**. That is the next check.
+  Claude ([decisions.md](decisions.md) §18). In this repository's own session
+  Claude's copy arrived with the next message, and Claude Code recorded the
+  receipt as a message for the user. **Whether the desktop app draws it has
+  not been confirmed by eye** — that is the next check.
 
 ## 2. Document map
 

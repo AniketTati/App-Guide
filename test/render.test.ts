@@ -35,6 +35,8 @@ describe('the grid holds', () => {
       expect(render(alarming(), cols).split('\n').length, `${cols} cols`).toBeLessThanOrEqual(BUDGET)
     }
     expect(render(allClear()).split('\n').length).toBeLessThanOrEqual(6)
+    // A change with nothing promoted is a glance, not a list.
+    expect(render(routine()).split('\n').length).toBeLessThanOrEqual(12)
   })
 
   it('never shows a section header with nothing under it', () => {
@@ -122,7 +124,9 @@ describe('display width', () => {
 
   it('holds the grid for wide characters', () => {
     const r = { ...routine(), also: [{ type: 'added' as const, fact: { kind: 'route' as const, method: 'POST', path: '/接口/用户/资料', middleware: ['認証ミドルウェア', '課金ガード'], framework: 'express', where: { file: 'src/a.ts', line: 1 } } }] }
-    for (const line of renderTerminal(r, { columns: 60 }).split('\n')) {
+    // --all: with nothing promoted, the entry would otherwise not be drawn,
+    // and this would pass while testing nothing.
+    for (const line of renderTerminal(r, { columns: 60, all: true }).split('\n')) {
       expect(width(line)).toBeLessThanOrEqual(60)
     }
   })

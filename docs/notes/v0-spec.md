@@ -37,7 +37,12 @@ time-saving one, which gets kept.
 
 - **Always print at least one line.** Silence is ambiguous: did it run, or find
   nothing?
-- **Never more than ~22 lines** by default. Overflow behind `--all`.
+- **Never more than 26 lines** by default. Overflow behind `--all`, which has
+  no budget: the reader asked for all of it.
+- **Nothing promoted, no list.** When no change earns a place in the top
+  block, the receipt is the heading, the sentence, the blind spots and the two
+  commands. The sentence must then account for every change, because it is
+  the only description printed.
 - **Cap the exception block at 3.** A "top" block of nine is not a top block.
 
 After twenty three-line receipts, a twenty-line one triggers a reaction before
@@ -122,12 +127,33 @@ kind, this will not rank it. Anything more is a rules engine.
 ────────────────────────────────────────────────────────────────────────────
 ```
 
-### All-clear
+### Nothing worth a look
+
+Most sessions. Things changed, none of them promoted — so a glance, not a list.
+Real output, from this repository:
 
 ```
- appguide · session 09:12–09:40 · 6 files · nothing new to the shape
-   4 symbols in 3 files · 0 routes · 0 deps · no boundary crossed
-   everything it touched was readable                appguide since --all
+────────────────────────────────────────────────────────────────────────────────
+ appguide · 49 files read · nothing worth a look
+
+ Your agent exported 17 new symbols.
+
+   17 changes · see them:
+     node dist/cli.js since --all
+   clear with:
+     node dist/cli.js seen
+────────────────────────────────────────────────────────────────────────────────
+```
+
+### All-clear
+
+Nothing changed at all.
+
+```
+────────────────────────────────────────────────────────────────────────────────
+ appguide · 6 files read · nothing new to the shape
+   everything it touched was readable
+────────────────────────────────────────────────────────────────────────────────
 ```
 
 ### Typography

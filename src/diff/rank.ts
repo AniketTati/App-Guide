@@ -152,12 +152,16 @@ export function summarise(changes: readonly Change[], firstRun = false, voice: '
   const exports_ = added.filter((c) => c.fact.kind === 'export')
   if (exports_.length > 0) clauses.push(`exported ${count(exports_.length, 'new symbol')}`)
 
+  let described = routes.length + writes.length + externals.length + libs.length + exports_.length
   if (clauses.length === 0) {
     if (changed.length > 0) clauses.push(`changed ${count(changed.length, 'thing')}`)
     if (removed.length > 0) clauses.push(`removed ${count(removed.length, 'thing')}`)
+    described += changed.length + removed.length
   } else if (removed.length > 0) {
     clauses.push(`removed ${count(removed.length, 'thing')}`)
+    described += removed.length
   }
+  clauses.push(...remainder(changes.length - described, clauses.length > 0))
 
   return `Your agent ${join(clauses)}.`
 }
@@ -203,7 +207,19 @@ function summarisePlain(changes: readonly Change[], firstRun: boolean): string {
       ? `Your agent removed ${count(removed, 'thing')} and adjusted some code.`
       : 'Your agent adjusted some code, but nothing about how your app is put together.'
   }
+  clauses.push(...remainder(changes.length - routes.length - writes.length - externals.length - libs.length, true))
   return `Your agent ${join(clauses)}.`
+}
+
+/**
+ * Whatever the clauses did not describe, counted. When nothing is promoted the
+ * receipt prints this sentence and a total and nothing else, so a sentence
+ * that names two things beside "3 changes" leaves the reader asking what the
+ * third one was — and a tool built on checkable counts cannot have counts that
+ * do not add up.
+ */
+function remainder(rest: number, others: boolean): string[] {
+  return rest > 0 ? [`made ${count(rest, others ? 'other change' : 'change')}`] : []
 }
 
 function count(n: number, singular: string, plural?: string): string {

@@ -24,6 +24,8 @@ export interface TerminalOptions {
    *  tells someone to run starts with this — a bare `appguide` is on nobody's
    *  PATH, so printing it hands the reader a command that fails. */
   command?: string
+  /** `--all`: the reader asked for the whole list, so never abbreviate it. */
+  all?: boolean
 }
 
 const DEFAULT_COMMAND = 'npx appguide'
@@ -38,7 +40,12 @@ export function renderTerminal(report: Report, opts: TerminalOptions = {}): stri
   const nothing = report.top.length === 0 && report.also.length === 0
   const voice = opts.voice ?? 'technical'
 
-  return nothing ? allClear(report, cols, voice) : full(report, cols, { ...opts, voice })
+  if (nothing) return allClear(report, cols, voice)
+  // Something changed but none of it was promoted. Say what, and stop. Length
+  // is the severity channel, and it only carries meaning if a session that
+  // needs nothing from the reader is visibly shorter than one that does.
+  if (report.top.length === 0 && opts.all !== true) return quiet(report, cols, { ...opts, voice })
+  return full(report, cols, { ...opts, voice })
 }
 
 /** The state the tool is in most of the time. Being visibly, reliably boring is
@@ -54,10 +61,7 @@ function allClear(report: Report, cols: number, voice: Voice): string {
         ? "first look — I've made a note of what's here. Run again after your next session."
         : 'first run — mark established, nothing to compare yet')
     : w.headline(report)
-  const head = ` ${bold('appguide')} ${dim('·')} ${session(report, voice)} ${dim('·')} `
-  const lines = width(head) + width(headline) <= cols
-    ? [`${head}${headline}`]
-    : [` ${bold('appguide')} ${dim('·')} ${session(report, voice)}`, `   ${dim(truncate(headline, cols - 4))}`]
+  const lines = heading(report, cols, voice, headline)
   const cover = coverageLines(report.gaps, cols, voice)
   lines.push(...(cover.length > 0
     ? cover
@@ -77,14 +81,7 @@ function full(report: Report, cols: number, opts: TerminalOptions): string {
     ...prose(report.summary, cols),
   ]
 
-  const coverage: string[] = []
-  if (report.gaps.length > 0) {
-    coverage.push('', ` ${dim(w.labels.gaps)}`, ...coverageLines(report.gaps, cols, voice),
-      ...words_(voice === 'plain'
-        ? `→ anything your agent changed in ${report.gaps.length === 1 ? 'it' : 'these'} is missing from the list above`
-        : `→ a change ${report.gaps.length === 1 ? 'in it' : 'in any of these'} would not appear above`, cols - 4)
-        .map((l) => `   ${dim(l)}`))
-  }
+  const coverage = coverageBlock(report, cols, voice, true)
 
   const footer = (hidden: number): string[] => [
     '',
@@ -96,7 +93,9 @@ function full(report: Report, cols: number, opts: TerminalOptions): string {
   // whatever did not fit is counted in the footer, which never gives ground.
   // The previous approach trimmed lines, and the line it trimmed first was the
   // one saying more findings existed.
-  let budget = MAX_LINES - head.length - coverage.length - footer(1).length
+  // Unless the reader asked for all of it: then a budget only produces "+1
+  // more — run --all", printed by --all.
+  let budget = opts.all === true ? Number.POSITIVE_INFINITY : MAX_LINES - head.length - coverage.length - footer(1).length
   const body: string[] = []
   let shown = 0
   const place = (label: string, changes: readonly Change[], evidence: boolean, offset: number): boolean => {
@@ -116,6 +115,54 @@ function full(report: Report, cols: number, opts: TerminalOptions): string {
   if (place(w.labels.top, report.top, true, 0)) place(w.labels.also, report.also, false, report.top.length)
 
   return frame([...head, ...body, ...coverage, ...footer(total - shown)], cols)
+}
+
+/**
+ * Nothing was promoted, so this is a glance, not a list.
+ *
+ * Installed on its own repository, the first real receipt spent its whole
+ * 26-line budget listing 17 new exports, none of which needed anyone. A
+ * receipt that is always full-length is the same failure as a top block that
+ * always has something in it: after the third one it is wallpaper, and the
+ * hook gets uninstalled. So the count is here, the list is one command away,
+ * and the blind spots stay, because a short receipt must never be mistaken
+ * for a clean bill of health.
+ */
+function quiet(report: Report, cols: number, opts: TerminalOptions): string {
+  const voice = opts.voice ?? 'technical'
+  const w = words(voice)
+  const command = opts.command ?? DEFAULT_COMMAND
+  const total = opts.hiddenCount ?? report.top.length + report.also.length
+  return frame([
+    ...heading(report, cols, voice, w.quiet(report)),
+    '',
+    ...prose(report.summary, cols),
+    ...coverageBlock(report, cols, voice, false),
+    '',
+    ...w.quietFooter(total, command).split('\n').map((l) => `   ${dim(truncate(l, cols - 4))}`),
+  ], cols)
+}
+
+/** appguide · N files · <phrase>, wrapping to a second line when it must. */
+function heading(report: Report, cols: number, voice: Voice, phrase: string): string[] {
+  const head = ` ${bold('appguide')} ${dim('·')} ${session(report, voice)} ${dim('·')} `
+  return width(head) + width(phrase) <= cols
+    ? [`${head}${phrase}`]
+    : [` ${bold('appguide')} ${dim('·')} ${session(report, voice)}`, `   ${dim(truncate(phrase, cols - 4))}`]
+}
+
+/** The blind spots, and what each one costs. Never dropped and never
+ *  shortened away — a short receipt that quietly means "half of it was
+ *  unreadable" is the failure this tool exists to prevent. */
+function coverageBlock(report: Report, cols: number, voice: Voice, listed: boolean): string[] {
+  if (report.gaps.length === 0) return []
+  const w = words(voice)
+  const many = report.gaps.length > 1
+  const cost = voice === 'plain'
+    ? `→ anything your agent changed in ${many ? 'these' : 'it'} ${listed ? 'is missing from the list above' : "isn't counted here"}`
+    : `→ a change ${many ? 'in any of these' : 'in it'} would not ${listed ? 'appear above' : 'be counted here'}`
+  return ['', ` ${dim(w.labels.gaps)}`, ...coverageLines(report.gaps, cols, voice),
+    ...words_(cost, cols - 4).map((l) => `   ${dim(l)}`)]
 }
 
 function frame(lines: readonly string[], cols: number): string {

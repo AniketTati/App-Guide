@@ -73,6 +73,20 @@ describe('getting the receipt to a person inside Claude Code', () => {
     expect(JSON.parse(again).systemMessage).toContain('/admin/wipe')
   })
 
+  it('does not promise Claude a #1 the person cannot see', async () => {
+    const { dir, change } = await app()
+    // A new checked URL: a change, but nothing promoted, so nothing numbered.
+    await change("app.get('/g5', requireAuth, h)")
+    const out = JSON.parse(await stopHook(dir))
+    expect(out.systemMessage).toContain('nothing worth a look')
+    // No desktop notification for a session that needs nothing.
+    expect(out).not.toHaveProperty('terminalSequence')
+    const pending = await readFile(pendingPath(dir), 'utf8')
+    expect(pending).not.toContain('explain #1')
+    expect(pending).toContain(`${COMMAND} since --all`)
+    expect(pending).toContain(`${COMMAND} seen`)
+  })
+
   it('leaves nothing for Claude when there is nothing to report', async () => {
     const { dir } = await app()
     await stopHook(dir)

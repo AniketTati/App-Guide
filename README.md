@@ -53,8 +53,9 @@ claiming success.
 
 From then on, when your agent finishes working, a short summary appears in your
 Claude Code session telling you what it changed — once, not after every reply.
-Most of the time it just says nothing new. The value is that the one time it
-isn't nothing, you notice.
+Most of the time it's a few lines saying nothing needs a look, and how to see
+the full list if you're curious. The value is that the one time something
+does, you notice.
 
 It works in Claude Code. Cursor and other agents aren't supported yet.
 

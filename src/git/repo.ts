@@ -103,16 +103,18 @@ export async function commitsBetween(root: string, base: string, head: string): 
 
 /** Files that differ between two commits. */
 export async function changedBetween(root: string, base: string, head: string): Promise<string[]> {
-  return lines(await git(root, ['diff', '--name-only', '--no-renames', base, head]))
+  return nul(await git(root, ['diff', '--name-only', '--no-renames', '-z', base, head]))
 }
 
 /** Uncommitted work in a worktree: modified, added and untracked files. */
 export async function uncommitted(worktree: string): Promise<string[]> {
-  const out = await git(worktree, ['status', '--porcelain=v1', '-uall', '--no-renames'])
-  return lines(out).map((l) => l.slice(3)).map((p) => (p.startsWith('"') ? JSON.parse(p) as string : p))
+  // -z: each entry ends in NUL and no path is quoted. Without it, a name with
+  // an accent or a quote comes back octal-escaped inside quotes.
+  return nul(await git(worktree, ['status', '--porcelain=v1', '-z', '-uall', '--no-renames'])).map((e) => e.slice(3))
 }
 
-const lines = (text: string): string[] => text.split('\n').map((l) => l.trimEnd()).filter(Boolean)
+/** git's NUL-separated output: names exactly as they are, never quoted. */
+const nul = (text: string): string[] => text.split('\0').filter((e) => e !== '')
 
 /** The files that describe the product: source in every language we read or
  *  count, and the manifests and configs that say how it fits together. */
@@ -164,7 +166,7 @@ export async function writeAtomically(path: string, text: string): Promise<void>
 
 /** A commit's product files, written into `dest` — never into the repository. */
 export async function checkoutAt(root: string, sha: string, dest: string): Promise<void> {
-  const files = lines(await git(root, ['ls-tree', '-r', '--name-only', sha])).filter((p) => PRODUCT_FILE.test(p))
+  const files = nul(await git(root, ['ls-tree', '-r', '--name-only', '-z', sha])).filter((p) => PRODUCT_FILE.test(p))
   if (files.length > 0) await archive(root, sha, files, dest)
 }
 

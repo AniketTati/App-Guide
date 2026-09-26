@@ -3,7 +3,7 @@ import { basename, join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { gitBinary, git } from '../../../src/git/repo.js'
-import { METHODS, type Api, type CheckView, type HomeView, type Method, type Project } from '../shared/api.js'
+import { METHODS, type Api, type CheckView, type HomeView, type Method, type ProductView, type Project } from '../shared/api.js'
 import type { HomeResult, ProjectState } from '../core/service.js'
 
 /**
@@ -120,6 +120,10 @@ const handlers: { [M in Method]: (...args: string[]) => ReturnType<Api[M]> } = {
     // here on, Home shows what changes on main.
     if (ps.seenMain === undefined) { ps.seenMain = result.baseHead; await saveState() }
     return result.view
+  },
+
+  async product(id): Promise<ProductView> {
+    return ask<ProductView>({ method: 'product', project: find(id), cacheDir: cacheDir(id) })
   },
 
   async check(id, workId): Promise<CheckView> {

@@ -124,25 +124,48 @@ const PRODUCT_FILE = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|py|go|rb|rs|java|kt|php|c
  * versions are the manifests' own ranges, since a commit has no node_modules.
  */
 export async function factsAt(root: string, sha: string, cacheDir: string): Promise<Fact[]> {
+  // Two asks for the same commit at once share one read.
+  const key = `${cacheDir}\u0000${sha}`
+  const running = reading.get(key)
+  if (running !== undefined) return running
+  const p = readFactsAt(root, sha, cacheDir).finally(() => reading.delete(key))
+  reading.set(key, p)
+  return p
+}
+
+const reading = new Map<string, Promise<Fact[]>>()
+
+async function readFactsAt(root: string, sha: string, cacheDir: string): Promise<Fact[]> {
   const cached = join(cacheDir, `${sha}.json`)
   try {
     return JSON.parse(await readFile(cached, 'utf8')) as Fact[]
   } catch {
     // not cached yet
   }
-  const files = lines(await git(root, ['ls-tree', '-r', '--name-only', sha])).filter((p) => PRODUCT_FILE.test(p))
   const scratch = await mkdtemp(join(tmpdir(), 'appguide-commit-'))
   try {
-    if (files.length > 0) await archive(root, sha, files, scratch)
+    await checkoutAt(root, sha, scratch)
     const { facts } = await extract(scratch, { versions: 'declared' })
-    await mkdir(cacheDir, { recursive: true })
-    const tmp = `${cached}.${process.pid}.tmp`
-    await writeFile(tmp, JSON.stringify(facts), 'utf8')
-    await rename(tmp, cached)
+    await writeAtomically(cached, JSON.stringify(facts))
     return facts
   } finally {
     await rm(scratch, { recursive: true, force: true })
   }
+}
+
+/** Write through a temporary file with a name no other writer shares, so two
+ *  writers of the same cache entry never rename each other's file away. */
+export async function writeAtomically(path: string, text: string): Promise<void> {
+  await mkdir(join(path, '..'), { recursive: true })
+  const tmp = `${path}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`
+  await writeFile(tmp, text, 'utf8')
+  await rename(tmp, path)
+}
+
+/** A commit's product files, written into `dest` — never into the repository. */
+export async function checkoutAt(root: string, sha: string, dest: string): Promise<void> {
+  const files = lines(await git(root, ['ls-tree', '-r', '--name-only', sha])).filter((p) => PRODUCT_FILE.test(p))
+  if (files.length > 0) await archive(root, sha, files, dest)
 }
 
 /** `git archive <sha> -- files… | tar -x -C dest`, without a shell. */

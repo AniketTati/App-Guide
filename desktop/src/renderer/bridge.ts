@@ -24,6 +24,7 @@ export const api: Api = {
   addProject: () => call('addProject') as ReturnType<Api['addProject']>,
   removeProject: (id) => call('removeProject', id) as ReturnType<Api['removeProject']>,
   home: (id) => call('home', id) as ReturnType<Api['home']>,
+  product: (id) => call('product', id) as ReturnType<Api['product']>,
   check: (id, workId) => call('check', id, workId) as ReturnType<Api['check']>,
   markSeen: (id) => call('markSeen', id) as ReturnType<Api['markSeen']>,
   markChecked: (id, workId) => call('markChecked', id, workId) as ReturnType<Api['markChecked']>,

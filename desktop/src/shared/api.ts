@@ -107,6 +107,57 @@ export interface CheckView {
   followUp: string
 }
 
+export interface RouteRow {
+  method: string
+  path: string
+  /** Each check as written; 'unresolved' if unreadable. */
+  checks: string[] | 'unresolved'
+  noCheck: boolean
+  /** Roles whose permissions pass its check, with their scope; null when its
+   *  check is not one the role table speaks about. */
+  who: { role: string; scope: string | null }[] | null
+  data: { table: string; kind: 'write' | 'read'; via: string | null }[]
+  where: string
+}
+
+export interface ScreenRow {
+  path: string
+  /** The sidebar's label, else the page component's name. */
+  name: string
+  component: string | null
+  signIn: 'required' | 'none' | 'unknown'
+  app: string
+  where: string
+  routes: RouteRow[]
+}
+
+export interface ProductView {
+  base: string
+  /** In the sidebar's order, then screens elsewhere, then those with no sign-in. */
+  groups: { label: string; note?: string; screens: ScreenRow[] }[]
+  /** Routes no screen calls: callbacks, webhooks, API keys, health. */
+  behind: RouteRow[]
+  /** Calls every signed-in screen makes through its layout. */
+  layout: RouteRow[]
+  /** Calls that reach no route. */
+  unmatched: { method: string; path: string; where: string; screen: string | null }[]
+  roles: RolesView | null
+  readAt: string
+}
+
+export interface RolesView {
+  /** Every table found, named as the code names it. */
+  tables: {
+    name: string
+    where: string
+    roles: string[]
+    /** One row per resource; each cell the actions a role has on it, and its scope. */
+    rows: { resource: string; cells: Record<string, { actions: string[]; scope: string | null }[]> }[]
+  }[]
+  /** "action resource" -> the routes that permission opens. */
+  routes: Record<string, { method: string; path: string }[]>
+}
+
 /** Every call the page may make. Each takes ids, never paths or commands. */
 export interface Api {
   projects(): Promise<Project[]>
@@ -114,6 +165,8 @@ export interface Api {
   addProject(): Promise<Project | null>
   removeProject(projectId: string): Promise<void>
   home(projectId: string): Promise<HomeView>
+  /** What the product on main does: screens, routes, data, who may call. */
+  product(projectId: string): Promise<ProductView>
   check(projectId: string, workId: string): Promise<CheckView>
   /** Main's current commit becomes "last looked". */
   markSeen(projectId: string): Promise<void>
@@ -122,4 +175,4 @@ export interface Api {
 }
 
 export type Method = keyof Api
-export const METHODS: readonly Method[] = ['projects', 'addProject', 'removeProject', 'home', 'check', 'markSeen', 'markChecked', 'copy']
+export const METHODS: readonly Method[] = ['projects', 'addProject', 'removeProject', 'home', 'product', 'check', 'markSeen', 'markChecked', 'copy']

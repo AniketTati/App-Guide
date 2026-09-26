@@ -192,3 +192,48 @@ button.row-main:hover .row-title { text-decoration: underline; text-decoration-c
 .md .md-li { position: relative; padding-left: 12px; }
 .md .md-li::before { content: '·'; position: absolute; left: 2px; color: var(--ink-3); }
 strong { font-weight: 600; color: var(--ink); }
+
+/* Product: an outline beside a trace. */
+.split { display: grid; grid-template-columns: minmax(300px, 380px) 1fr; height: 100%; min-height: 0; }
+.outline { border-right: 1px solid var(--line); overflow: auto; padding: 22px 12px 40px 20px; }
+.outline-head h1 { font-size: 20px; line-height: 26px; font-weight: 650; }
+.search { width: 100%; margin: 12px 0 6px; height: 28px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font: inherit; }
+.search:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+.finding { margin: 10px 0 4px; padding: 10px 12px; border-radius: 8px; background: var(--accent-soft); font-size: 12px; }
+.finding strong { display: block; margin-bottom: 2px; color: var(--accent); }
+.outline-group { margin-top: 14px; }
+.outline-label { font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-3); padding: 0 8px 4px; }
+.outline-row { display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto auto; column-gap: 8px; width: 100%; text-align: left; border: 0; background: none; border-radius: 6px; padding: 5px 8px; cursor: default; }
+.outline-row:hover { background: var(--hover); }
+.outline-row.active { background: var(--line); }
+.outline-name { font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.outline-path { grid-column: 1; color: var(--ink-3); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.outline-meta { grid-column: 2; grid-row: 1 / span 2; align-self: center; color: var(--ink-3); font-size: 12px; }
+.trace { overflow: auto; }
+.trace-body { max-width: 860px; padding: 26px 32px 60px; }
+.trace-title { font-size: 20px; line-height: 26px; font-weight: 650; }
+.route { padding: 8px 0; border-bottom: 1px solid var(--line-2); }
+.route:last-child { border-bottom: 0; }
+.route-title { display: flex; align-items: baseline; gap: 12px; }
+.route-flag { font-size: 12px; }
+.route-line { display: grid; grid-template-columns: 44px 1fr; column-gap: 8px; align-items: baseline; margin-top: 3px; color: var(--ink-2); font-size: 12px; }
+.route-line .label { color: var(--ink-3); }
+.route-value { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: baseline; }
+.role { font-family: var(--mono); font-size: 11px; padding: 0 6px; border-radius: 4px; background: var(--line-2); color: var(--ink-2); line-height: 18px; }
+.route-line.source { display: block; margin-left: 52px; }
+
+/* Who can do what: a matrix that scrolls sideways when it must. */
+.page.wide { max-width: none; padding-right: 28px; }
+.tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+.tab { height: 26px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); font-family: var(--mono); font-size: 11.5px; cursor: default; }
+.tab.active { background: var(--ink); color: var(--panel); border-color: var(--ink); }
+.matrix-wrap { overflow: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.matrix { border-collapse: collapse; font-size: 12px; min-width: 100%; }
+.matrix th, .matrix td { border-bottom: 1px solid var(--line-2); padding: 6px 10px; text-align: left; vertical-align: top; }
+.matrix thead th { font: 600 10.5px/16px var(--mono); color: var(--ink-2); position: sticky; top: 0; background: var(--panel); white-space: nowrap; }
+.matrix tbody th { font-weight: 600; white-space: nowrap; }
+.matrix td button { border: 0; background: none; padding: 0; text-align: left; cursor: default; }
+.matrix td button:hover .grant { text-decoration: underline; text-decoration-color: var(--ink-3); }
+.matrix td.active { background: var(--accent-soft); }
+.grant { display: block; color: var(--ink); white-space: nowrap; }
+.grant em { font-style: normal; color: var(--accent); }

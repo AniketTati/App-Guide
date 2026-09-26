@@ -4,9 +4,11 @@ import { api, inApp, onChanged } from './bridge.js'
 import { clock } from './format.js'
 import { Home } from './Home.js'
 import { CheckScreen } from './Check.js'
+import { ProductScreen } from './Product.js'
+import { WhoCanScreen } from './WhoCan.js'
 import { Button, Spinner } from './ui.js'
 
-type Screen = { name: 'home' } | { name: 'check'; workId: string }
+type Screen = { name: 'home' } | { name: 'product' } | { name: 'who' } | { name: 'check'; workId: string }
 
 export function App() {
   const [projects, setProjects] = useState<Project[] | null>(null)
@@ -56,10 +58,12 @@ export function App() {
           <button type="button" className={`nav-item ${screen.name === 'home' ? 'active' : ''}`} onClick={() => setScreen({ name: 'home' })}>
             Home{home !== null && home.waiting.length > 0 && <span className="badge">{home.waiting.length}</span>}
           </button>
+          <button type="button" className={`nav-item ${screen.name === 'product' ? 'active' : ''}`} onClick={() => setScreen({ name: 'product' })}>Product</button>
+          <button type="button" className={`nav-item ${screen.name === 'who' ? 'active' : ''}`} onClick={() => setScreen({ name: 'who' })}>Who can do what</button>
           <div className="nav-group">Products</div>
           {projects.map((p) => (
             <button type="button" key={p.id} className={`nav-item nav-product ${p.id === project.id ? 'active' : ''}`} title={p.path}
-              onClick={() => { if (p.id !== project.id) { setHome(null); setScreen({ name: 'home' }); setCurrent(p.id) } }}>
+              onClick={() => { if (p.id !== project.id) { setHome(null); setScreen({ name: 'home' }); setCurrent(p.id) } else setScreen({ name: 'home' }) }}>
               {p.name}
             </button>
           ))}
@@ -73,6 +77,8 @@ export function App() {
         ? (loading && <div className="center"><Spinner label={`Reading ${project.name}… The first read takes about ten seconds; after that it’s quick.`} /></div>)
         : <Home home={home} refreshing={loading} onRefresh={() => void load(project.id)} onCheck={(workId) => setScreen({ name: 'check', workId })}
             onSeen={async () => { await api.markSeen(project.id); await load(project.id) }} />)}
+      {screen.name === 'product' && <ProductScreen projectId={project.id} />}
+      {screen.name === 'who' && <WhoCanScreen projectId={project.id} />}
       {screen.name === 'check' && (
         <CheckScreen projectId={project.id} workId={screen.workId} onBack={() => { setScreen({ name: 'home' }); void load(project.id) }} />
       )}

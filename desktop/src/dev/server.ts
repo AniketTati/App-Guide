@@ -2,6 +2,7 @@ import { createServer } from 'node:http'
 import { basename, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { checkWork, home, type HomeResult, type ProjectState } from '../core/service.js'
+import { productOnMain } from '../core/product.js'
 import { METHODS, type Project } from '../shared/api.js'
 
 /**
@@ -25,6 +26,7 @@ const calls: Record<string, (...a: string[]) => Promise<unknown>> = {
   removeProject: async () => undefined,
   home: async () => { last = await home(project, state, cache); state.seenMain ??= last.baseHead; return last.view },
   check: async (_id, workId) => (await checkWork(project, workId!, state, cache)).view,
+  product: async () => productOnMain(project.path, cache),
   markSeen: async () => { if (last) state.seenMain = last.baseHead },
   markChecked: async (_id, workId) => { const w = last?.work.find((x) => x.id === workId); if (w) state.checked[workId!] = { at: new Date().toISOString(), head: w.head, dirty: w.dirty } },
   copy: async () => undefined,

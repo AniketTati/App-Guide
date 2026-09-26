@@ -688,3 +688,16 @@ it is defensible.
      sidebar's sections, 30 behind sign-in; 196 of 297 routes reached from a
      screen; data found for 274; nine roles; and one call that reaches no
      route — `GET /api/v1/approvals`, from the contract page.
+114. **Product and Who can do what are built on main, not the checkout.** The
+     product view reads main's commit — what Home counts — into a scratch
+     folder and caches the result by commit and by view version, so an
+     updated app never shows a view an older one built. On draft-legal it
+     answers the PM's own question from the code: who can approve a contract
+     is whoever passes `POST /api/v1/approvals/:instanceId/decide`'s check —
+     ADMIN, LEGAL_COUNSEL, LEGAL_OPS, FINANCE and APPROVER — and the route
+     changes the approval, its steps, the contract and the audit log. A grant
+     on everything shows in every row: leaving it out made ADMIN look like it
+     could do nothing with clauses. Two requests for one view at once — the
+     page asks from two screens — share one read, and every cache write uses
+     its own temporary file; one shared name made the second writer's rename
+     fail.

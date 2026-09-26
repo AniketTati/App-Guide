@@ -1,4 +1,4 @@
-import { checkWork, home, type ProjectState } from '../core/service.js'
+import { checkWork, home, workProduct, type ProjectState } from '../core/service.js'
 import { listWork } from '../../../src/check/work.js'
 import { productOnMain } from '../core/product.js'
 import { addDraftedTask, draftTask } from '../core/ask.js'
@@ -29,6 +29,7 @@ type Request =
   | { id: number; method: 'check'; project: Project; workId: string; state: ProjectState; cacheDir: string }
   | { id: number; method: 'poll'; project: Project }
   | { id: number; method: 'product'; project: Project; cacheDir: string }
+  | { id: number; method: 'workProduct'; project: Project; workId: string; cacheDir: string }
   | { id: number; method: 'draft' | 'addTask'; project: Project; input: AskInput; cacheDir: string }
 
 interface ParentPort { on(event: 'message', listener: (e: { data: Request }) => void): void; postMessage(message: unknown): void }
@@ -40,6 +41,7 @@ port.on('message', async ({ data: req }) => {
     if (req.method === 'home') result = await home(req.project, req.state, req.cacheDir)
     else if (req.method === 'check') result = await checkWork(req.project, req.workId, req.state, req.cacheDir)
     else if (req.method === 'product') result = await productOnMain(req.project.path, req.cacheDir)
+    else if (req.method === 'workProduct') result = await workProduct(req.project, req.workId, req.cacheDir)
     else if (req.method === 'draft') result = await draftTask(req.project.path, req.input, req.cacheDir)
     else if (req.method === 'addTask') result = await addDraftedTask(req.project.path, req.input, req.cacheDir)
     else {

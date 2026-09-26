@@ -42,6 +42,8 @@ export interface WebApp {
   /** Every file each screen runs, three imports deep: which screens a change
    *  to a file reaches. */
   reach: Map<string, string[]>
+  /** Where each screen leads: the screens its links and navigation go to. */
+  nav: Map<string, string[]>
   sections: { label: string | null; items: { to: string; label: string }[] }[]
 }
 
@@ -98,16 +100,24 @@ export function readWeb(files: readonly ParsedFile[], r: Resolver): WebApp {
   const shared = new Set([...count].filter(([f, n]) => n >= 3 && !screens.some((s) => s.file === f)).map(([f]) => f))
 
   const calls = new Map<string, ApiCall[]>()
+  const nav = new Map<string, string[]>()
   for (const s of screens) {
     const files = reach.get(s.path)
-    if (files === undefined) { calls.set(s.path, []); continue }
+    if (files === undefined) { calls.set(s.path, []); nav.set(s.path, []); continue }
     const out: ApiCall[] = []
+    const links = new Set<string>()
     for (const [f, via] of files) {
       if (shared.has(f)) continue
       const parsed = r.file(f)
-      if (parsed !== undefined) out.push(...callsIn(parsed, r, clients, f === s.file ? null : via))
+      if (parsed === undefined) continue
+      out.push(...callsIn(parsed, r, clients, f === s.file ? null : via))
+      for (const target of linksIn(parsed)) {
+        const to = screenAt(target, screens)
+        if (to !== null && to !== s.path) links.add(to)
+      }
     }
     calls.set(s.path, dedupe(out))
+    nav.set(s.path, [...links].sort())
   }
   const layout = dedupe(layoutComponents.flatMap(({ file }) => {
     const out: ApiCall[] = []
@@ -125,7 +135,7 @@ export function readWeb(files: readonly ParsedFile[], r: Resolver): WebApp {
     if (own.length === 0) continue
     sharedParts.push({ name: componentName(f), file: f, screens: screens.filter((s) => reach.get(s.path)?.has(f) === true).map((s) => s.path), calls: own })
   }
-  return { screens, calls, layout, shared: sharedParts, reach: new Map([...reach].map(([k, v]) => [k, [...v.keys()]])), sections }
+  return { screens, calls, layout, shared: sharedParts, reach: new Map([...reach].map(([k, v]) => [k, [...v.keys()]])), nav, sections }
 }
 
 /** One node of a route tree, from JSX or from a route object. */
@@ -438,6 +448,56 @@ function findSections(files: readonly ParsedFile[]): WebApp['sections'] {
     visit(f.ast)
   }
   return out
+}
+
+/**
+ * Where a file's links and navigation go: `<Link to>`, `<NavLink to>`, an
+ * `<a href>` to the app itself, and `navigate('/…')` — each as a path, with
+ * `${…}` read as a parameter.
+ */
+function linksIn(file: ParsedFile): string[] {
+  const src = file.ast
+  const router = routerImports(file)
+  const out: string[] = []
+  const add = (e: ts.Expression | undefined): void => {
+    const p = e === undefined ? null : pathOf(e, src)
+    if (p !== null && p.startsWith('/') && !p.startsWith('//')) out.push(p)
+  }
+  const visit = (n: ts.Node): void => {
+    if ((ts.isJsxSelfClosingElement(n) || ts.isJsxOpeningElement(n)) && ts.isIdentifier(n.tagName)) {
+      const tag = n.tagName.text === 'a' ? 'a' : router.get(n.tagName.text)
+      if (tag === 'Link' || tag === 'NavLink' || tag === 'a') {
+        for (const a of n.attributes.properties) {
+          if (!ts.isJsxAttribute(a) || !ts.isIdentifier(a.name) || a.name.text !== (tag === 'a' ? 'href' : 'to')) continue
+          const v = a.initializer
+          add(v === undefined ? undefined : ts.isStringLiteral(v) ? v : ts.isJsxExpression(v) ? v.expression : undefined)
+        }
+      }
+    }
+    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'navigate') add(n.arguments[0])
+    ts.forEachChild(n, visit)
+  }
+  visit(src)
+  return out
+}
+
+/** The screen a path opens, a literal segment beating a parameter. */
+function screenAt(target: string, screens: readonly Screen[]): string | null {
+  const t = target.split('/').filter(Boolean)
+  let best: { path: string; score: number } | null = null
+  for (const s of screens) {
+    const p = s.path.split('/').filter(Boolean)
+    if (p.length !== t.length) continue
+    let score = 0
+    let ok = true
+    for (let i = 0; i < p.length; i++) {
+      if (p[i] === t[i]) score += 2
+      else if (p[i]!.startsWith(':') || t[i]!.startsWith(':')) score += 1
+      else { ok = false; break }
+    }
+    if (ok && (best === null || score > best.score)) best = { path: s.path, score }
+  }
+  return best?.path ?? null
 }
 
 /** The route a call reaches: method and path, a literal segment beating a

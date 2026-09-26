@@ -1,9 +1,12 @@
 # App Guide for Mac
 
 The desktop app for a product manager who owns an agent-built product and never
-opens a terminal: what is waiting on them, the work Claude has in flight, and a
-Check of each branch against main before it merges. The plan and its gates are
-in [../docs/notes/pm-app.md](../docs/notes/pm-app.md).
+opens a terminal. It opens on a **map** of the product — its screens, where
+each leads, the data they change, what runs behind the scenes, and who can use
+what — read from the code. The same map checks a piece of Claude's work before
+it merges, marked where the work changes things; notes pinned to anything on it
+go to Claude together. **Today** is what waits on the PM. The plan and its gates
+are in [../docs/notes/pm-app.md](../docs/notes/pm-app.md).
 
 ## Build and install
 
@@ -39,6 +42,6 @@ The first command after `pnpm build` starts a read-only API on
 | `src/main` | the window, what the app remembers, notifications. It never reads a repository itself. |
 | `src/worker` | a utility process that reads repositories, using the engine in `../src` |
 | `src/core` | engine results turned into views, in the PM's words |
-| `src/renderer` | the page (React) |
+| `src/renderer` | the page (React); `Map.tsx` and `map/` draw the product with React Flow |
 | `src/shared/api.ts` | every call the page can make: ids in, views out |
 | `src/dev` | the read-only development server |

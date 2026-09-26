@@ -347,3 +347,107 @@ strong { font-weight: 600; color: var(--ink); }
 .preview { margin: 0; padding: 12px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line-2); font: 12px/18px var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink-2); flex: 1; min-height: 200px; }
 .sheet-foot { display: flex; align-items: center; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--line); flex-wrap: wrap; }
 .sheet-status { flex: 1; min-width: 240px; color: var(--ink-2); font-size: 12px; }
+
+/* ── The top bar: which product, and three places ─────────────────────── */
+.product-pick { -webkit-app-region: no-drag; font: 600 13px var(--sans); color: var(--ink); background: transparent; border: 0; padding: 4px 6px; border-radius: 6px; max-width: 220px; }
+.product-pick:hover { background: var(--hover); }
+.tabs-top { display: flex; gap: 2px; margin-left: 12px; -webkit-app-region: no-drag; }
+.tabs-top button { height: 28px; padding: 0 12px; border: 0; border-radius: 6px; background: transparent; color: var(--ink-2); font-size: 13px; cursor: default; display: inline-flex; align-items: center; gap: 8px; }
+.tabs-top button:hover { background: var(--hover); color: var(--ink); }
+.tabs-top button.on { background: var(--select); color: var(--ink); font-weight: 600; }
+.tabs-top .badge { margin-left: 0; }
+
+/* ── The map ────────────────────────────────────────────────────────────── */
+.map { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.map-bar { display: flex; align-items: center; gap: 14px; padding: 8px 14px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+.map-field { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-3); font-size: 12px; }
+.map-field .select { max-width: 300px; }
+.map-find { width: 220px; margin: 0; height: 26px; font-size: 12px; }
+.map-spacer { flex: 1; }
+.legend { display: flex; gap: 12px; color: var(--ink-3); font-size: 11px; align-items: center; flex-wrap: wrap; }
+.legend span { display: inline-flex; align-items: center; gap: 5px; }
+.lg-line { display: inline-block; width: 18px; border-top: 1.5px solid var(--ink); }
+.lg-dash { border-top: 1.5px dashed var(--ink-3); }
+.lg-go { border-top-color: var(--ink-2); }
+.lg-box { display: inline-block; width: 12px; height: 10px; border-radius: 3px; border: 1.5px solid var(--ink); }
+.lg-new { background: var(--ink); }
+.lg-none { opacity: .35; border-style: dashed; }
+
+.map-verdict { display: flex; align-items: center; gap: 16px; padding: 8px 14px; border-bottom: 1px solid var(--line); background: var(--bg); }
+.mv-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.mv-text strong { font-size: 13px; }
+.mv-sentence { font-size: 12px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mv-facts { display: flex; gap: 12px; font-size: 12px; color: var(--ink-2); flex-wrap: wrap; }
+.mv-actions { display: flex; gap: 6px; flex: none; }
+
+.map-body { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 380px; min-height: 0; }
+.map-canvas { position: relative; min-height: 0; background: var(--bg); }
+.map-canvas .react-flow { --xy-background-color: var(--bg); --xy-node-border-radius: 8px; }
+.map-canvas .react-flow__node { cursor: default; }
+.map-canvas .react-flow__controls { box-shadow: none; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.map-canvas .react-flow__controls-button { background: var(--panel); border-bottom: 1px solid var(--line); color: var(--ink-2); fill: var(--ink-2); }
+.map-canvas .react-flow__minimap { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
+.map-panel { border-left: 1px solid var(--line); background: var(--panel); overflow: auto; min-height: 0; display: flex; flex-direction: column; }
+.map-tabs { margin: 0; align-self: stretch; position: sticky; top: 0; z-index: 2; border-radius: 0; border-width: 0 0 1px; background: var(--panel); padding: 8px 14px; display: flex; gap: 4px; }
+.map-tabs button { border: 1px solid var(--line) !important; border-radius: 6px; }
+
+/* A frame: one of the sidebar's sections, or a part no screen shows. */
+.mframe { width: 100%; height: 100%; border: 1px solid var(--line); border-radius: 12px; background: color-mix(in srgb, var(--panel) 55%, transparent); pointer-events: none; }
+.mframe-label { position: absolute; top: 12px; left: 16px; font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-2); }
+.mframe-note { position: absolute; top: 26px; left: 16px; right: 16px; font-size: 11px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* A card: a screen, a part, a kind of data, something behind the scenes. */
+.mcard { width: 100%; height: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; gap: 2px; box-shadow: 0 1px 0 rgba(0,0,0,.03); transition: opacity .15s, border-color .15s; overflow: hidden; }
+.mcard:hover { border-color: var(--ink-3); }
+.mcard.sel { border: 2px solid var(--ink); padding: 7px 9px; }
+.mcard.linked { border-color: var(--ink-2); }
+.mcard.dim { opacity: .28; }
+.mcard.k-table { padding: 6px 9px; gap: 0; }
+.mcard-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.mcard-label { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+.k-table .mcard-label { font: 600 12px var(--mono); }
+.mcard-sub { font-size: 11px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.k-screen .mcard-sub { font-family: var(--mono); }
+.mcard-facts { font-size: 11px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: auto; }
+.mnotes { flex: none; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px 9px 9px 2px; background: var(--ink); color: var(--panel); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; }
+.mchange { flex: none; font-size: 10px; font-weight: 600; letter-spacing: .02em; padding: 0 5px; border-radius: 4px; line-height: 16px; }
+.mchange-new { background: var(--ink); color: var(--panel); }
+.mchange-changed { border: 1px solid var(--ink); color: var(--ink); line-height: 14px; }
+.mchange-gone { border: 1px dashed var(--ink-3); color: var(--ink-3); line-height: 14px; }
+.mchange-touched { border: 1px solid var(--line); color: var(--ink-3); line-height: 14px; }
+.mcard.ch-new, .mcard.ch-changed { border-color: var(--ink); border-width: 1.5px; }
+.mcard.ch-gone { border-style: dashed; opacity: .6; }
+.mcard.ch-gone .mcard-label { text-decoration: line-through; }
+.mcard.ac-none { opacity: .35; border-style: dashed; }
+.mcard.ac-some .mcard-facts { color: var(--ink); }
+.mhandle { opacity: 0; pointer-events: none; width: 1px !important; height: 1px !important; min-width: 0 !important; min-height: 0 !important; border: 0 !important; }
+
+/* The side panel: what's picked, and the notes. */
+.panel-body { padding: 14px 16px 24px; display: flex; flex-direction: column; gap: 6px; }
+.panel-title { font-size: 15px; line-height: 20px; font-weight: 650; }
+.panel-hint { color: var(--ink-2); font-size: 12px; line-height: 18px; margin-top: 6px; }
+.panel-h { font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-2); margin: 12px 0 4px; }
+.panel-sec { display: flex; flex-direction: column; }
+.panel-line { font-size: 12px; line-height: 18px; }
+.panel-body .rl-row { grid-template-columns: 44px minmax(0, 1fr) minmax(0, 40%) !important; }
+.panel-body .rl-row .where { display: none; }
+.panel-body .rl-row:has(.rl-type) { grid-template-columns: 48px 44px minmax(0, 1fr) minmax(0, 34%) !important; }
+.panel-body .rl-note { margin-left: 0; }
+.panel-body .rl-more { padding-left: 8px; }
+.chip-btn { border: 0; cursor: default; }
+.chip-btn:hover { background: var(--select); color: var(--ink); }
+.notebox textarea { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; resize: vertical; margin-top: 4px; }
+.notebox textarea:focus { outline: 2px solid var(--select); border-color: var(--ink-3); }
+.notebox-actions { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.pinned { position: relative; padding: 8px 10px 8px 12px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line-2); margin-top: 6px; font-size: 13px; line-height: 18px; display: flex; flex-direction: column; gap: 2px; }
+.pinned::before { content: ''; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 2px; background: var(--ink); }
+.pinned.sent { opacity: .6; }
+.pinned.sent::before { background: var(--ink-3); }
+.pinned-target { font-size: 11px; font-weight: 600; color: var(--ink-2); text-align: left; text-transform: none; }
+.pinned-meta { font-size: 11px; color: var(--ink-3); }
+.panel-send { display: flex; gap: 8px; margin-top: 12px; }
+.map-canvas .react-flow__minimap-node.mm-frame { fill: transparent; stroke: var(--line); stroke-width: 6; }
+.map-canvas .react-flow__minimap-node.mm-card { fill: var(--ink-3); }
+.map-canvas .react-flow__minimap-node.mm-change { fill: var(--ink); }
+.map-canvas .react-flow__minimap-node.mm-needs { fill: var(--accent); }
+.map-canvas .react-flow__minimap-mask { fill: color-mix(in srgb, var(--bg) 70%, transparent); }

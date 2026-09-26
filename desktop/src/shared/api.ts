@@ -221,6 +221,8 @@ export interface RouteRow {
 }
 
 export interface ScreenRow {
+  /** The screens this one's links and navigation lead to, by path. */
+  goesTo: string[]
   path: string
   /** Where the page component is defined. */
   file: string | null
@@ -306,6 +308,20 @@ export interface DraftView {
   hash: string
 }
 
+/** A note the PM pinned to part of the product, on main or on a piece of
+ *  work — kept by the app until it's sent to Claude, and after. */
+export interface Note {
+  id: string
+  /** 'main', or the id of the piece of work it was written while checking. */
+  on: string
+  target: { kind: NoteTarget; key: string; label: string }
+  text: string
+  at: string
+  sentAt: string | null
+}
+
+export type NoteTarget = 'screen' | 'table' | 'part' | 'group' | 'job' | 'role' | 'route' | 'product'
+
 /** Every call the page may make. Each takes ids, never paths or commands. */
 export interface Api {
   projects(): Promise<Project[]>
@@ -316,6 +332,14 @@ export interface Api {
   /** What the product on main does: screens, routes, data, who may call. */
   product(projectId: string): Promise<ProductView>
   check(projectId: string, workId: string): Promise<CheckView>
+  /** The product as a piece of work leaves it: the map for a Check. */
+  workProduct(projectId: string, workId: string): Promise<ProductView>
+  notes(projectId: string): Promise<Note[]>
+  /** A note as JSON: { on, target: { kind, key, label }, text }. */
+  addNote(projectId: string, note: string): Promise<Note>
+  removeNote(projectId: string, noteId: string): Promise<void>
+  /** Notes sent to Claude, by id, as a JSON list. */
+  markNotesSent(projectId: string, noteIds: string): Promise<void>
   /** Main's current commit becomes "last looked". */
   markSeen(projectId: string): Promise<void>
   markChecked(projectId: string, workId: string): Promise<void>
@@ -335,4 +359,4 @@ export interface Api {
 }
 
 export type Method = keyof Api
-export const METHODS: readonly Method[] = ['projects', 'addProject', 'removeProject', 'home', 'product', 'check', 'markSeen', 'markChecked', 'markPublic', 'copy', 'draftTask', 'addTask', 'openClaude', 'openScreen']
+export const METHODS: readonly Method[] = ['projects', 'addProject', 'removeProject', 'home', 'product', 'check', 'markSeen', 'markChecked', 'markPublic', 'copy', 'draftTask', 'addTask', 'openClaude', 'openScreen', 'workProduct', 'notes', 'addNote', 'removeNote', 'markNotesSent']

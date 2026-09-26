@@ -33,6 +33,11 @@ export const api: Api = {
   addTask: (id, input) => call('addTask', id, input) as ReturnType<Api['addTask']>,
   openClaude: () => call('openClaude') as ReturnType<Api['openClaude']>,
   openScreen: (id, workId, path) => call('openScreen', id, workId, path) as ReturnType<Api['openScreen']>,
+  workProduct: (id, workId) => call('workProduct', id, workId) as ReturnType<Api['workProduct']>,
+  notes: (id) => call('notes', id) as ReturnType<Api['notes']>,
+  addNote: (id, note) => call('addNote', id, note) as ReturnType<Api['addNote']>,
+  removeNote: (id, noteId) => call('removeNote', id, noteId) as ReturnType<Api['removeNote']>,
+  markNotesSent: (id, ids) => call('markNotesSent', id, ids) as ReturnType<Api['markNotesSent']>,
   copy: async (text) => {
     if (window.appguide !== undefined) { await call('copy', text); return }
     await navigator.clipboard.writeText(text)

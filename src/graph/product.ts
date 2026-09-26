@@ -25,6 +25,8 @@ export interface Product {
   unmatched: (ApiCall & { screen: string | null })[]
   /** screen path -> every file it runs. */
   reach: Map<string, string[]>
+  /** screen path -> the screens it leads to. */
+  nav: Map<string, string[]>
   sections: { label: string | null; items: { to: string; label: string }[] }[]
   /** What each route's handler reads and changes. */
   data: Map<Route, DataUse[]>
@@ -74,7 +76,7 @@ export async function readProduct(root: string): Promise<Product> {
   return {
     facts: repo.facts,
     screens: web.screens.map((s) => ({ ...s, app: appOf(s.where.file) })),
-    links, layout, shared, unmatched, reach: web.reach, sections: web.sections,
+    links, layout, shared, unmatched, reach: web.reach, nav: web.nav, sections: web.sections,
     data: routeData(routes, new Map(repo.parsed.map((f) => [f.path, f])), r),
     roles: readRoles(repo.parsed, r),
     background: readBackground(repo.parsed, r),

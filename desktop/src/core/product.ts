@@ -94,6 +94,7 @@ export function productView(p: Product, base: string): ProductView {
   })
 
   const screenRow = (s: Product['screens'][number]): ScreenRow => ({
+    goesTo: p.nav.get(s.path) ?? [],
     path: s.path,
     file: s.file,
     name: s.label ?? (s.component !== null ? humanise(s.component) : s.path),

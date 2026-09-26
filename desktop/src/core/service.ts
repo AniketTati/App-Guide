@@ -10,7 +10,7 @@ import type { Fact } from '../../../src/model/facts.js'
 import { blindSpots, checkView, commitView, groupChanges, isStale, nameOf, productCounts, taskView, workView, type Checked } from './views.js'
 import { productAt, productOfTree, type ProductBuild } from './product.js'
 import { appDirOf, servedAt } from './running.js'
-import type { CheckView, HomeView, MergeView, Project, TaskView } from '../shared/api.js'
+import type { CheckView, HomeView, MergeView, Note, ProductView, Project, TaskView } from '../shared/api.js'
 
 type Route = Extract<Fact, { kind: 'route' }>
 
@@ -23,6 +23,8 @@ export interface ProjectState {
   checked: Record<string, Checked>
   /** Routes with no check the PM says are meant to be open: "METHOD /path". */
   publicOk?: string[]
+  /** What the PM pinned to the map, on main or while checking a piece of work. */
+  notes?: Note[]
 }
 
 export interface HomeResult {
@@ -113,6 +115,17 @@ export async function checkWork(project: Project, workId: string, state: Project
     running: item.path === null ? null : await servedAt(item.path, appDirOf(routerFileOf(after.build))),
   })
   return { view, fingerprint: item.fingerprint, head: item.head }
+}
+
+/** The product as a piece of work leaves it — on disk while it has
+ *  uncommitted edits, else at its commit — for the map of a Check. */
+export async function workProduct(project: Project, workId: string, cacheDir: string): Promise<ProductView> {
+  const root = project.path
+  const list = await listWork(root, { branches: workId.startsWith('branch:') })
+  const item = list.work.find((w) => w.id === workId)
+  if (item === undefined) throw new Error('That work isn’t in flight any more — it may have been merged or put away.')
+  const live = item.path !== null && item.uncommitted.length > 0
+  return (live ? (await productOfTree(item.path!, list.base, item.fingerprint)).build : await productAt(root, item.head, list.base, cacheDir)).view
 }
 
 /**

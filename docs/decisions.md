@@ -901,3 +901,18 @@ it is defensible.
      Mac, found with `lsof`, whose folder is that work's web app — and the
      task's own "Reported" line says what to try. Every brief says to work on
      a new branch from main, never the checkout's current one.
+137. **The app opens on a map, not a page of lists.** The PM's verdict on the
+     built app: it read like documents — they expected to see the product,
+     check work on it, comment, and hand that to Claude. So the product is a
+     canvas: each screen a card in its sidebar section, with where it leads
+     (read from its links and `navigate()` calls), the data it changes and
+     reads, parts many screens share, what runs behind the scenes, and a
+     role switch that shades what that role can't use. A Check is the same
+     map for the product as the work leaves it: new, changed, and only
+     "touched" (it runs changed code) marked on the cards, the verdict in a
+     strip across the top. Any card takes a note; the notes go to Claude as
+     one brief, each with what the map knows about its card — on main as new
+     tasks for the tracker, on a piece of work as changes to make there. The
+     lists stay as the details of whatever is picked, and the full report is
+     a click from the map. Drawn with React Flow (MIT); placement is worked out
+     from the product, the same every time.

@@ -262,3 +262,23 @@ Still open, not built: a Claude session's own title beside its worktree;
 pull-request and CI state (needs the network and the PM's GitHub sign-in);
 the receipt hook offered from inside the app; reading the Python agents
 service; whether a role's "own only" is enforced deeper than the route.
+
+## 10. The map
+
+The PM's verdict on the lists: "this seems more like docs". What they wanted —
+see, check, comment, feed into Claude — is now one surface (decision #137):
+
+- **See.** Each screen is a card in its sidebar section; picking one draws
+  where it leads, the data it changes and reads, and the parts it uses. Data,
+  shared parts and what runs behind the scenes are frames of their own.
+- **Check.** Choosing a piece of work redraws the map as that work leaves it,
+  marking new, changed and touched cards, with the verdict — merges, pushed,
+  "done when" — across the top.
+- **As a role.** One switch shades the screens a role can't use, fully or in
+  part.
+- **Comment, then send.** A note can be pinned to any card; the notes go to
+  Claude as one brief that says where each is — new tasks on main, changes on
+  a piece of work.
+
+Today (what waits on the PM) and Who can do what stay as tabs; the lists are
+now the details behind a picked card.

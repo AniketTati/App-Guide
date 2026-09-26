@@ -5,9 +5,9 @@ import { createHash } from 'node:crypto'
 import { copyFile, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { gitBinary, git } from '../../../src/git/repo.js'
-import { METHODS, type Api, type AskInput, type CheckView, type DraftView, type HomeView, type Method, type ProductView, type Project } from '../shared/api.js'
+import { METHODS, type Api, type CheckView, type DraftView, type HomeView, type Method, type Note, type ProductView, type Project } from '../shared/api.js'
 import type { HomeResult, ProjectState } from '../core/service.js'
-import { askInput } from '../core/input.js'
+import { askInput, noteInput } from '../core/input.js'
 
 /**
  * The app's own process: its window, what it remembers, and the queue of
@@ -215,6 +215,37 @@ const handlers: { [M in Method]: (...args: string[]) => ReturnType<Api[M]> } = {
     const seen = lastCheck.get(`${id}\u0000${workId}`) ?? lastHome.get(id)?.work.find((w) => w.id === workId)
     if (seen === undefined) return
     stateOf(id).checked[workId] = { at: new Date().toISOString(), head: seen.head, dirty: seen.dirty, fingerprint: seen.fingerprint }
+    await saveState()
+  },
+
+  async workProduct(id, workId): Promise<ProductView> {
+    const view = await ask<ProductView>({ method: 'workProduct', project: find(id), workId, cacheDir: cacheDir(id) })
+    return { ...view, publicOk: stateOf(id).publicOk ?? [] }
+  },
+
+  async notes(id): Promise<Note[]> {
+    return stateOf(id).notes ?? []
+  },
+
+  async addNote(id, json): Promise<Note> {
+    const ps = stateOf(id)
+    const note = noteInput(json, createHash('sha256').update(`${Date.now()}${Math.random()}`).digest('hex').slice(0, 12), new Date().toISOString())
+    ps.notes = [...(ps.notes ?? []), note].slice(-500)
+    await saveState()
+    return note
+  },
+
+  async removeNote(id, noteId) {
+    const ps = stateOf(id)
+    ps.notes = (ps.notes ?? []).filter((n) => n.id !== noteId)
+    await saveState()
+  },
+
+  async markNotesSent(id, json) {
+    const ids = new Set((JSON.parse(json) as unknown[]).filter((x): x is string => typeof x === 'string'))
+    const ps = stateOf(id)
+    const at = new Date().toISOString()
+    ps.notes = (ps.notes ?? []).map((n) => (ids.has(n.id) ? { ...n, sentAt: at } : n))
     await saveState()
   },
 

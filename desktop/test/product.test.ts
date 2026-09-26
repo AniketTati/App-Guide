@@ -25,6 +25,7 @@ function product(): Product {
     shared: [{ name: 'UploadModal', file: 'u.tsx', screens: ['/contracts', '/contracts/:id'], links: [{ route: hook, call: { method: 'POST', path: '/api/internal/hook', file: 'u.tsx', line: 1, via: null } }] }],
     unmatched: [],
     reach: new Map([['/contracts', ['a.tsx', 'u.tsx']]]),
+    nav: new Map([['/contracts', ['/contracts/:id']]]),
     sections: [{ label: 'Workspace', items: [{ to: '/contracts', label: 'Contracts' }] }],
     data: new Map([[list, [{ table: 'contract', kind: 'read', file: 'r.ts', line: 2, via: null }]]]),
     background: { queues: [{ name: 'agents', declared: { file: 'q.ts', line: 1 }, jobs: [{ name: 'review', addedAt: [{ file: 'r.ts', line: 3 }] }], workers: [{ file: 'w.ts', line: 9 }], repeats: [] }], timers: [], sockets: [] },

@@ -1,11 +1,11 @@
 import { createServer } from 'node:http'
 import { basename, join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { checkWork, home, type HomeResult, type ProjectState } from '../core/service.js'
+import { checkWork, home, workProduct, type HomeResult, type ProjectState } from '../core/service.js'
 import { productOnMain } from '../core/product.js'
 import { draftTask } from '../core/ask.js'
 import { METHODS, type Project } from '../shared/api.js'
-import { askInput } from '../core/input.js'
+import { askInput, noteInput } from '../core/input.js'
 
 /**
  * Development only: the same calls over HTTP so every screen can be run and
@@ -35,6 +35,12 @@ const calls: Record<string, (...a: string[]) => Promise<unknown>> = {
   openClaude: async () => false,
   // The development server opens nothing.
   openScreen: async () => false,
+  workProduct: async (_id, workId) => ({ ...(await workProduct(project, workId!, cache)), publicOk: state.publicOk ?? [] }),
+  // Notes are kept in memory, like every other mark here.
+  notes: async () => state.notes ?? [],
+  addNote: async (_id, json) => { const n = noteInput(json!, Math.random().toString(36).slice(2, 14), new Date().toISOString()); state.notes = [...(state.notes ?? []), n]; return n },
+  removeNote: async (_id, noteId) => { state.notes = (state.notes ?? []).filter((n) => n.id !== noteId) },
+  markNotesSent: async (_id, json) => { const ids = new Set(JSON.parse(json!) as string[]); state.notes = (state.notes ?? []).map((n) => (ids.has(n.id) ? { ...n, sentAt: new Date().toISOString() } : n)) },
   markSeen: async () => { if (last) state.seenMain = last.baseHead },
   markChecked: async (_id, workId) => { const w = last?.work.find((x) => x.id === workId); if (w) state.checked[workId!] = { at: new Date().toISOString(), head: w.head, dirty: w.dirty, fingerprint: w.fingerprint } },
   markPublic: async (_id, route, on) => { const list = new Set(state.publicOk ?? []); if (on === 'on') list.add(route!); else list.delete(route!); state.publicOk = [...list] },

@@ -84,10 +84,11 @@ export function App() {
 export function Sidebar() { return null }
 `,
   'apps/web/src/pages/LoginPage.tsx': "import { Avatar } from '@/components/Avatar'\nexport function LoginPage() { return null }\n",
-  'apps/web/src/pages/ContractsPage.tsx': "import { api } from '@/lib/api'\nimport { Avatar } from '@/components/Avatar'\nexport function ContractsPage() { api.get('/contracts'); return null }\n",
+  'apps/web/src/pages/ContractsPage.tsx': "import { Link } from 'react-router-dom'\nimport { api } from '@/lib/api'\nimport { Avatar } from '@/components/Avatar'\nexport function ContractsPage({ c }) { api.get('/contracts'); return <Link to={`/contracts/${c.id}`}>open</Link> }\n",
   'apps/web/src/pages/ContractPage.tsx': `import { api } from '@/lib/api'
 import { Avatar } from '@/components/Avatar'
-export function ContractPage({ id, qs }) {
+export function ContractPage({ id, qs, navigate }) {
+  navigate('/audit?from=contract')
   api.patch(\`/contracts/\${id}\`)
   api.delete(\`/contracts/\${id}\`)
   api.get('/approvals')
@@ -143,6 +144,12 @@ describe('what each screen calls', () => {
     expect([...p.links.values()].flat().some((l) => l.call.path === '/api/v1/me')).toBe(false)
     // Listed once, with the screens it appears on — never dropped.
     expect(p.shared.map((s) => [s.name, s.screens.sort()])).toEqual([['Avatar', ['/contracts', '/contracts/:id', '/login']]])
+  })
+
+  it('knows where each screen leads, from its links and its navigation', () => {
+    expect(p.nav.get('/contracts')).toEqual(['/contracts/:id'])
+    expect(p.nav.get('/contracts/:id')).toEqual(['/audit'])
+    expect(p.nav.get('/login')).toEqual([])
   })
 
   it('knows which screens run each file', () => {

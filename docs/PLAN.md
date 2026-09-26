@@ -6,7 +6,7 @@ here and nowhere else. Every other document is a detail this one points at.
 If this file and another document disagree, **this file is right and the other
 one is a bug.** Fix it in the same commit that you noticed it.
 
-Last updated: 2026-09-26 (the PM app planned and critiqued; Fastify read, 252 of 252)
+Last updated: 2026-09-26 (the PM app's Home and Check built and installed; not yet used by the PM)
 
 ---
 
@@ -22,7 +22,7 @@ in-session display below, then G3 and the Step 1 evidence test.
 | **Step 0** — verify competitors | ✅ **passed** | neither produces the inventory signals ([decisions.md](decisions.md) §15) |
 | **v0 — the receipt** | 🟡 **built, G1 measured and failing** | G1–G4 · steps in [notes/build-steps.md](notes/build-steps.md) |
 | v0.5 — GitHub Action + markdown | 🟡 written, never run in CI | in someone else's CI |
-| **PM app** — [notes/pm-app.md](notes/pm-app.md) | 🟡 **planned and critiqued; M1 under way** | the Use gate in its §6, four weeks after it is usable |
+| **PM app** — [notes/pm-app.md](notes/pm-app.md) | 🟡 **M1 done; M2 built — Home and Check, installed in `~/Applications`; not yet used by the PM** | the Use gate in its §6, four weeks after it is usable |
 | v1 — MCP server | ⬜ not started | someone asks for it |
 | v2 — rules, frozen on first run | ⬜ not started | findings people act on |
 
@@ -69,6 +69,7 @@ document not listed here does not exist** — see §5.
 | [notes/build-steps.md](notes/build-steps.md) | numbered implementation steps with definitions of done | how v0 gets built |
 | [notes/flow-levels.md](notes/flow-levels.md) | the four flow-verification levels | what "verified flow" may claim |
 | [notes/pm-app.md](notes/pm-app.md) | the desktop app for a PM who maintains an agent-built product | what the app shows, how it is built, its milestones and gates |
+| [../desktop/README.md](../desktop/README.md) | building, installing and developing the Mac app | how the app is built and laid out |
 | [../README.md](../README.md) | public face of the repository | the one-paragraph pitch |
 | [../CLAUDE.md](../CLAUDE.md) | agent entry point | where an agent starts reading |
 | [../LICENSE](../LICENSE) | Apache-2.0 | the licence terms |

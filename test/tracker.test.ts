@@ -78,3 +78,14 @@ describe('task IDs in commit subjects', () => {
     expect(taskIdsOf('Plan six recurring defect classes')).toEqual([])
   })
 })
+
+describe('what a task names', () => {
+  it('keeps the file names a task mentions without a path, and its text', () => {
+    const [task] = parseTasks('FIX_TRACKER.md', `- **EE1 — Every action in the review drawer is a decision. — DONE.**
+    - \`FocusedReviewDrawer.tsx\` now records a decision; \`review-queue.ts\` keeps the order.
+    - Tested in review-decision.integration.test.ts.
+`)
+    expect(task!.mentions).toEqual(['FocusedReviewDrawer.tsx', 'review-decision.integration.test.ts', 'review-queue.ts'])
+    expect(task!.text.split('\n')[0]).toBe('- `FocusedReviewDrawer.tsx` now records a decision; `review-queue.ts` keeps the order.')
+  })
+})

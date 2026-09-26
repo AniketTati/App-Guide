@@ -661,3 +661,14 @@ it is defensible.
      flight, and two files the checkout's branch shares with an uncommitted
      worktree — the collision the PM asked to see before merging. A first
      Check takes ~9s while main's commit is read and cached, ~3.6s after.
+112. **The app is built, and checked the way it runs.** Electron, as planned:
+     the window's process never reads a repository; a utility process does,
+     one request at a time; the page reaches it only through named calls that
+     take ids. It opens on the product's Home and a Check per piece of work;
+     the first look sets the baseline, as the receipt's first run does. Two
+     things only running the packaged app showed. A browser preview cannot see
+     the real bridge, so the app takes a test-only snapshot of its own window —
+     the packaged app, against draft-legal, rendered Home from the real
+     utility process. And a folder named `cache` in the app's data is the same
+     folder as Chromium's own `Cache` on a Mac, whose file names ignore case,
+     so its facts now live in `facts/`.

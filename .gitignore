@@ -50,3 +50,7 @@ venv/
 
 # recall benchmark corpus (bench/express/run.sh)
 .bench-work/
+
+# desktop app build output (desktop/scripts/pack.sh)
+desktop/release/
+.claude/launch.json

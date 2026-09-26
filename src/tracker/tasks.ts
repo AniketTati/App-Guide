@@ -28,6 +28,10 @@ export interface Task {
   worklog: { label: string; text: string }[]
   /** Repository paths the task names, line numbers dropped. */
   cites: string[]
+  /** File names it mentions with or without a path — `review-queue.ts`. */
+  mentions: string[]
+  /** The task as written, below its first line. */
+  text: string
 }
 
 const ID = /[A-Z]{1,3}\d{1,3}/
@@ -96,16 +100,19 @@ function fromHeading(file: string, line: number, id: string, title: string, body
     }
   }
   const status = STATUS_WORD.exec(fields['Status'] ?? '')?.[1] ?? null
-  return { id, title: clean(title), status, file, line, fields, criteria, worklog, cites: cites([title, ...body].join('\n')) }
+  const all = [title, ...body].join('\n')
+  return { id, title: clean(title), status, file, line, fields, criteria, worklog, cites: cites(all), mentions: mentions(all), text: body.join('\n').trim() }
 }
 
 function fromBold(file: string, line: number, id: string, inner: string, body: string[]): Task {
   // "Liability caps were reasoned about, not measured. — DONE."
   const m = /^(.*?)\s+[—–-]+\s+([A-Z][A-Z-]{2,})\.?\s*$/.exec(inner)
   const title = m === null ? inner : m[1]!
+  const all = [inner, ...body].join('\n')
   return {
     id, title: clean(title), status: m === null ? null : m[2]!, file, line,
-    fields: {}, criteria: [], worklog: [], cites: cites([inner, ...body].join('\n')),
+    fields: {}, criteria: [], worklog: [], cites: cites(all), mentions: mentions(all),
+    text: dedent(body).join('\n').trim(),
   }
 }
 
@@ -119,6 +126,21 @@ function cites(text: string): string[] {
     out.add(path)
   }
   return [...out].sort()
+}
+
+const FILE_NAME = /(?:^|[\s`(/])([\w.@-]+\.(?:tsx?|jsx?|mjs|cjs|py|prisma|sql|json|md|css|go|rb|rs))\b/g
+
+function mentions(text: string): string[] {
+  const out = new Set<string>()
+  for (const m of text.matchAll(FILE_NAME)) out.add(m[1]!)
+  return [...out].sort()
+}
+
+/** Nested lines lose the indent they had under their bullet. */
+function dedent(lines: readonly string[]): string[] {
+  const indents = lines.filter((l) => l.trim() !== '').map((l) => l.length - l.trimStart().length)
+  const cut = indents.length === 0 ? 0 : Math.min(...indents)
+  return lines.map((l) => l.slice(Math.min(cut, l.length - l.trimStart().length)))
 }
 
 /**

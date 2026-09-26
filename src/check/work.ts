@@ -109,9 +109,12 @@ export async function check(root: string, id: string, cacheDir: string, voice: '
   const tasks = item.tasks.map((t) => byId.get(t)).filter((t): t is Task => t !== undefined)
   const unknownTasks = item.tasks.filter((t) => !byId.has(t))
 
+  // A task names a file by its path, or by its file name alone — trackers
+  // often write `review-queue.ts` without the folder.
   const cited = new Set(tasks.flatMap((t) => t.cites))
+  const named = new Set(tasks.flatMap((t) => t.mentions))
   const product = item.changed.filter((f) => !isTestFile(f))
-  const outside = cited.size === 0 ? [] : product.filter((f) => !cited.has(f) && !isTrackerFile(f))
+  const outside = cited.size === 0 && named.size === 0 ? [] : product.filter((f) => !cited.has(f) && !named.has(f.slice(f.lastIndexOf('/') + 1)) && !isTrackerFile(f))
 
   const others = work.filter((w) => w.id !== item.id)
   const overlaps = item.changed

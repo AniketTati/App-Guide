@@ -98,6 +98,23 @@ npx --yes github:AniketTati/App-Guide init-hook --uninstall
 trust. And it always tells you what it couldn't read, so a short list never
 quietly means a clean bill of health.
 
+## For the person who owns the product
+
+**App Guide for Mac** ([desktop/](desktop/README.md)) is for a product manager
+who maintains an agent-built product and never opens a terminal. It shows what
+their tracker says is waiting on them, every piece of work Claude has in flight
+— the checkout and each worktree, and which files they share — and, for each
+one, a **Check** against main before it merges:
+- what it changed, read from the code: routes and who may call them, data,
+  outside services, packages;
+- the tasks its commits name, with their acceptance criteria and worklog from
+  the branch's own tracker;
+- what it touched that its tasks don't mention;
+- the tests it changed.
+
+It reads only; nothing leaves the Mac. Plan and status:
+[docs/notes/pm-app.md](docs/notes/pm-app.md).
+
 ## Why not just ask the agent
 
 Two reasons, and neither closes as models improve:

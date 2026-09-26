@@ -6,7 +6,7 @@ here and nowhere else. Every other document is a detail this one points at.
 If this file and another document disagree, **this file is right and the other
 one is a bug.** Fix it in the same commit that you noticed it.
 
-Last updated: 2026-09-26 (short receipt when nothing is worth a look; Claude's copy seen arriving live)
+Last updated: 2026-09-26 (the PM app planned and critiqued; Fastify read, 252 of 252)
 
 ---
 
@@ -22,6 +22,7 @@ in-session display below, then G3 and the Step 1 evidence test.
 | **Step 0** — verify competitors | ✅ **passed** | neither produces the inventory signals ([decisions.md](decisions.md) §15) |
 | **v0 — the receipt** | 🟡 **built, G1 measured and failing** | G1–G4 · steps in [notes/build-steps.md](notes/build-steps.md) |
 | v0.5 — GitHub Action + markdown | 🟡 written, never run in CI | in someone else's CI |
+| **PM app** — [notes/pm-app.md](notes/pm-app.md) | 🟡 **planned and critiqued; M1 under way** | the Use gate in its §6, four weeks after it is usable |
 | v1 — MCP server | ⬜ not started | someone asks for it |
 | v2 — rules, frozen on first run | ⬜ not started | findings people act on |
 
@@ -67,6 +68,7 @@ document not listed here does not exist** — see §5.
 | [notes/v0-spec.md](notes/v0-spec.md) | what v0 actually is — the receipt, signals, ranking | the v0 product surface |
 | [notes/build-steps.md](notes/build-steps.md) | numbered implementation steps with definitions of done | how v0 gets built |
 | [notes/flow-levels.md](notes/flow-levels.md) | the four flow-verification levels | what "verified flow" may claim |
+| [notes/pm-app.md](notes/pm-app.md) | the desktop app for a PM who maintains an agent-built product | what the app shows, how it is built, its milestones and gates |
 | [../README.md](../README.md) | public face of the repository | the one-paragraph pitch |
 | [../CLAUDE.md](../CLAUDE.md) | agent entry point | where an agent starts reading |
 | [../LICENSE](../LICENSE) | Apache-2.0 | the licence terms |
@@ -222,10 +224,20 @@ regulation or framework requires knowing which lines an AI wrote, and Sonar is
 *removing* its automatic AI-code detection. Do not count audit demand as a reason
 to build.
 
+### The PM app
+
+An Electron app for the PM who maintains draft-legal and never opens a
+terminal: what needs them, a Check for each branch before it merges, the
+product in their own words, and tasks handed to Claude through their tracker.
+Built by the owner's choice for a named user, with a reversal trigger
+([decisions.md](decisions.md) §19, #102). Plan and gates:
+[notes/pm-app.md](notes/pm-app.md).
+
 ### Off the roadmap
 
-`map.html`, the module graph, the data matrix, flows, Python, any hosted app, the
-ACP shell, schema migrations, and the sketchbook. Code visualization has never
+The module graph, any hosted app, running agents from the app, the ACP shell,
+schema migrations, and the sketchbook. The PM app brings back a local GUI, a
+view of the product, flows at L0/L1 and Python, for one named user (#102). Code visualization has never
 supported a standalone product in thirty-five years — Sourcetrail is archived,
 CodeSee returns 404, Structure101 is now a free SonarQube feature.
 

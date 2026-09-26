@@ -572,3 +572,54 @@ it is defensible.
      stands for. The app's own hooks are left out of each route's checks, as
      Express's app-wide middleware is. Test files are skipped, because they
      register the same routes again at other prefixes.
+102. **An app for a named PM, by the owner's choice.** The owner asked for an
+     app a product manager uses to see, define and maintain draft-legal without
+     a terminal. That brings back what §9 took off the roadmap — a GUI, a view
+     of the product, flows (at L0/L1 only), Python — and makes an exception to
+     #58 for this surface. It is recorded as the owner's choice for a named
+     user, **not** as evidence of demand, with a reversal trigger: if, in the
+     four weeks after the app is usable, the PM does not open it unprompted in
+     three of them, open most merged branches in it first, and turn at least
+     one finding into a task, it shrinks back to the receipt. The plan is
+     [notes/pm-app.md](notes/pm-app.md).
+103. **Home is what needs the PM; the map is context.** All five critiques said
+     it. The recurring trigger is checking a branch before it merges and what
+     is waiting on them; "what does the product do" is asked about monthly
+     (#50). So Home is *waiting on you · in flight · changed on main*, Check is
+     the main screen, and the product view is an outline in the product's own
+     sidebar sections with a trace for the selected row — not a node graph,
+     whose hubs (organization, user, audit log) would link everything to
+     everything.
+104. **Around their tools, in their words.** Tasks stay in their tracker (read
+     in both of its formats), Claude stays in the Claude app and its worktrees,
+     commits already name their tasks. The first draft's words collided with
+     the product's own features — *Requests*, *Review*, *Rules* and *Actions*
+     are all things in draft-legal — so the app says *task*, *Check*, *ground
+     rules*, and shows routes as `PATCH /contracts/:id`. It never edits a
+     tracked file without showing the change and asking; its own notes are
+     excluded through `.git/info/exclude`, never by editing `.gitignore`.
+105. **The app does not run Claude, in v1.** The Claude app already gives every
+     session its own worktree. A run started from a Dock-launched app has no
+     shell PATH, no `.env`, no Docker, and refuses every tool it cannot ask
+     about — so "done" can mean no test ran. Anthropic's terms for scripted use
+     changed three times in 2026. The hand-off is *Copy for Claude* and *Open
+     Claude*; the app checks the worktree that results.
+106. **"No check found", never "anyone".** Read against the code, 12 of the 26
+     routes the reader first called unchecked verify a secret, token or
+     signature inside the handler; one hook it counted as a check only records
+     output; a guard ten modules install through `onRoute` was missed. So a
+     hook counts only if its code can refuse a request, in-handler checks are
+     named with their line, `onRoute` guards count, and an empty list reads as
+     an absence measured, not a statement about who can reach the route.
+107. **The app reads by commit, off the window's thread.** Agents edit in
+     `.claude/worktrees/`, which the folder reader skips, and the checkout's
+     branch switches would read as product changes. So the app's notes are
+     commit SHAs — main's last-looked commit; each worktree against its
+     merge-base — read through `git archive` and cached. A full read is ~3s and
+     ~200 MB of syntax trees, so it runs in a utility process with per-file
+     results cached by blob SHA. The CLI's receipt keeps its working-tree mark.
+108. **Not a launch.** The PM app is built for one person. It is not published
+     as a product, draft-legal's findings are never used as marketing, and the
+     name — which collides with "in-app guides", a category every PM knows — is
+     settled before anything is announced. A Developer ID and notarisation wait
+     until a second PM asks.

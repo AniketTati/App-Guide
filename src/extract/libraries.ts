@@ -55,6 +55,9 @@ export interface LibraryScan {
   /** Workspace members: every directory below the root with its own
    *  package.json, longest first. The root itself is not listed. */
   workspace: { dir: string; name: string }[]
+  /** Every package.json and tsconfig/jsconfig, repo-relative. */
+  manifests: string[]
+  configs: string[]
 }
 
 interface Declared { range: string; dev: boolean; manifest: string; dir: string }
@@ -190,7 +193,7 @@ export async function scanLibraries(root: string, { versions = 'installed' }: { 
     .filter((m) => m.dir !== '')
     .map((m) => ({ dir: m.dir, name: typeof (m.json as { name?: unknown }).name === 'string' ? (m.json as { name: string }).name : m.dir }))
     .sort((a, b) => b.dir.length - a.dir.length || (a.dir < b.dir ? -1 : 1))
-  return { facts, files, importers, declared: new Set(declared.keys()), workspace }
+  return { facts, files, importers, declared: new Set(declared.keys()), workspace, manifests, configs }
 }
 
 const BUILTINS: ReadonlySet<string> = new Set(builtinModules)

@@ -7,7 +7,7 @@ import { scanRoutes } from './extract/routes/index.js'
 import { scanExternal } from './extract/external.js'
 import { scanData } from './extract/data.js'
 import { scanExports } from './extract/exports.js'
-import { parseAll } from './extract/parse.js'
+import { parseAll, type ParsedFile } from './extract/parse.js'
 import { isTestFile } from './extract/files.js'
 import { compare } from './diff/compare.js'
 import { toReport } from './diff/rank.js'
@@ -38,7 +38,20 @@ export interface Extraction {
 }
 
 /** Read the product at `root` into facts. Writes nothing. */
-export async function extract(root: string, { versions = 'installed' }: ExtractOptions = {}): Promise<Extraction> {
+export async function extract(root: string, options: ExtractOptions = {}): Promise<Extraction> {
+  const { facts, files, workspace } = await readRepo(root, options)
+  return { facts, files, workspace }
+}
+
+export interface RepoRead extends Extraction {
+  /** The product's own parsed files — tests left out. */
+  parsed: ParsedFile[]
+  manifests: string[]
+  configs: string[]
+}
+
+/** The facts, and the parsed files they came from, for readers that need more. */
+export async function readRepo(root: string, { versions = 'installed' }: ExtractOptions = {}): Promise<RepoRead> {
   const scan = await scanLibraries(root, { versions })
   const { parsed, gaps: parseGaps } = parseAll(scan.files)
   // Imported counts as present. In a workspace the root package.json declares
@@ -55,7 +68,7 @@ export async function extract(root: string, { versions = 'installed' }: ExtractO
     ...scanData(product, present),
     ...scanExports(product),
   ]
-  return { facts, files: scan.files.length, workspace: scan.workspace }
+  return { facts, files: scan.files.length, workspace: scan.workspace, parsed: product, manifests: scan.manifests, configs: scan.configs }
 }
 
 export async function run({ root, mark, voice = 'technical' }: RunOptions): Promise<Report> {

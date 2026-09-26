@@ -2,8 +2,8 @@ import { ts } from 'ts-morph'
 import type { Fact } from '../model/facts.js'
 import type { ParsedFile } from './parse.js'
 
-const WRITE = new Set(['create', 'createMany', 'update', 'updateMany', 'upsert', 'delete', 'deleteMany', 'insert', 'set', 'save', 'remove'])
-const READ = new Set(['findUnique', 'findFirst', 'findMany', 'count', 'aggregate', 'groupBy', 'select', 'query'])
+export const WRITE = new Set(['create', 'createMany', 'update', 'updateMany', 'upsert', 'delete', 'deleteMany', 'insert', 'set', 'save', 'remove'])
+export const READ = new Set(['findUnique', 'findFirst', 'findMany', 'count', 'aggregate', 'groupBy', 'select', 'query', 'findUniqueOrThrow', 'findFirstOrThrow'])
 
 /**
  * Which module touches which table.

@@ -672,3 +672,19 @@ it is defensible.
      utility process. And a folder named `cache` in the app's data is the same
      folder as Chromium's own `Cache` on a Mac, whose file names ignore case,
      so its facts now live in `facts/`.
+113. **The product, as one picture — read, not drawn from names.** Screens come
+     from the router (JSX routes and route objects, nested paths joined,
+     redirects and catch-alls left out), grouped by the sidebar's own sections.
+     A screen needs sign-in when it sits under a wrapper whose code renders a
+     `<Navigate>` — read from the wrapper, never its name. Each screen's calls
+     go through the app's HTTP client (its `baseURL` joined on) and are
+     matched to routes by method and path; the trail stops at the client and at
+     modules three or more screens share, and a layout's calls are its own.
+     A `${…}` glued onto a segment is a query string, not a parameter. Each
+     route's handler is read for its data, transactions included, one call
+     deep. Role tables are found by shape, every one returned under the name
+     the code gives it, a table keyed by an enum first; who may call a route
+     comes from its own check's arguments. On draft-legal: 38 screens in the
+     sidebar's sections, 30 behind sign-in; 196 of 297 routes reached from a
+     screen; data found for 274; nine roles; and one call that reaches no
+     route — `GET /api/v1/approvals`, from the contract page.

@@ -237,3 +237,37 @@ strong { font-weight: 600; color: var(--ink); }
 .matrix td.active { background: var(--accent-soft); }
 .grant { display: block; color: var(--ink); white-space: nowrap; }
 .grant em { font-style: normal; color: var(--accent); }
+
+/* The top bar's one action, and the sheet it opens. */
+.topbar-right { margin-left: auto; -webkit-app-region: no-drag; }
+.topbar-action { height: 26px; display: inline-flex; align-items: center; gap: 8px; }
+.kbd { font-size: 11px; opacity: .75; }
+.trace-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.sheet-backdrop { position: fixed; inset: 0; background: rgba(20, 20, 24, .28); display: flex; align-items: flex-start; justify-content: center; padding: 56px 24px 24px; z-index: 10; }
+.sheet { width: min(1080px, 100%); max-height: calc(100vh - 80px); display: flex; flex-direction: column; background: var(--panel); border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,.25); border: 1px solid var(--line); }
+.sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+.sheet-head h2 { font-size: 15px; font-weight: 650; }
+.close { border: 0; background: none; font-size: 20px; color: var(--ink-3); cursor: default; }
+.sheet-body { display: grid; grid-template-columns: 1fr 1fr; min-height: 0; overflow: auto; }
+.sheet-form { padding: 16px 18px; display: flex; flex-direction: column; gap: 16px; border-right: 1px solid var(--line); }
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field > span { font-weight: 600; font-size: 12px; }
+.field em { font-style: normal; font-weight: 400; color: var(--ink-3); }
+.field small { color: var(--ink-3); font-size: 11.5px; }
+.field input, .field textarea { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; resize: vertical; }
+.field input:focus, .field textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+.picks { display: flex; flex-wrap: wrap; gap: 6px; }
+.pick { display: inline-flex; align-items: center; gap: 6px; padding: 2px 4px 2px 9px; border-radius: 12px; background: var(--accent-soft); color: var(--accent); font-size: 12px; }
+.pick button { border: 0; background: none; color: inherit; cursor: default; font-size: 14px; line-height: 1; }
+.options { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.option { display: flex; justify-content: space-between; gap: 12px; width: 100%; padding: 6px 10px; border: 0; border-bottom: 1px solid var(--line-2); background: var(--panel); text-align: left; cursor: default; }
+.option:hover { background: var(--hover); }
+.option:last-child { border-bottom: 0; }
+.option .dim { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 50%; font-size: 11.5px; }
+.sheet-preview { padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.preview-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; color: var(--ink-2); }
+.id-field { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-3); }
+.id-field input { width: 64px; font: 12px var(--mono); padding: 3px 6px; border: 1px solid var(--line); border-radius: 5px; background: var(--bg); color: var(--ink); }
+.preview { margin: 0; padding: 12px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line-2); font: 12px/18px var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink-2); flex: 1; min-height: 200px; }
+.sheet-foot { display: flex; align-items: center; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--line); }
+.sheet-status { flex: 1; color: var(--ink-2); font-size: 12px; }

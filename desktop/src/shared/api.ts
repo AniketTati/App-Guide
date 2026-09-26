@@ -122,6 +122,8 @@ export interface RouteRow {
 
 export interface ScreenRow {
   path: string
+  /** Where the page component is defined. */
+  file: string | null
   /** The sidebar's label, else the page component's name. */
   name: string
   component: string | null
@@ -158,6 +160,32 @@ export interface RolesView {
   routes: Record<string, { method: string; path: string }[]>
 }
 
+/** What the PM wrote in "Ask for a change". Sent as JSON text. */
+export interface AskInput {
+  what: string
+  why: string
+  criteria: string[]
+  /** Screens by path and routes by "METHOD /path", picked from Product. */
+  picks: { kind: 'screen' | 'route'; key: string }[]
+  /** Their own choice of ID, if they changed the suggestion. */
+  id?: string
+}
+
+export interface DraftView {
+  id: string
+  suggestedId: string
+  /** The tracker it would go into; null if the product has none. */
+  file: string | null
+  /** The checkout's branch, where the file is. */
+  branch: string | null
+  /** Exactly what would be added to the tracker. */
+  text: string
+  /** A brief to paste into Claude. */
+  brief: string
+  /** Why it can't be added yet, or null. */
+  problem: string | null
+}
+
 /** Every call the page may make. Each takes ids, never paths or commands. */
 export interface Api {
   projects(): Promise<Project[]>
@@ -172,7 +200,13 @@ export interface Api {
   markSeen(projectId: string): Promise<void>
   markChecked(projectId: string, workId: string): Promise<void>
   copy(text: string): Promise<void>
+  /** Draft a task from what the PM wrote. Writes nothing. */
+  draftTask(projectId: string, input: string): Promise<DraftView>
+  /** Add the drafted task to the tracker — the one write the app makes. */
+  addTask(projectId: string, input: string): Promise<{ id: string; file: string; line: number }>
+  /** Bring the Claude app forward. */
+  openClaude(): Promise<boolean>
 }
 
 export type Method = keyof Api
-export const METHODS: readonly Method[] = ['projects', 'addProject', 'removeProject', 'home', 'product', 'check', 'markSeen', 'markChecked', 'copy']
+export const METHODS: readonly Method[] = ['projects', 'addProject', 'removeProject', 'home', 'product', 'check', 'markSeen', 'markChecked', 'copy', 'draftTask', 'addTask', 'openClaude']

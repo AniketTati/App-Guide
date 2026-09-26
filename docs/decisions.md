@@ -701,3 +701,15 @@ it is defensible.
      page asks from two screens — share one read, and every cache write uses
      its own temporary file; one shared name made the second writer's rename
      fail.
+115. **Asking for a change writes one thing, in the tracker's own shape.** The
+     PM says what should change, why, and when it is done, and picks where
+     from Product. The app drafts a task: the next ID in the family the
+     tracker used last, the tracker's field order, the picked screens and
+     routes as Evidence with their files and lines — so the Check of the
+     work that follows has a precise scope to compare against. It goes into
+     a dated section before the log and summary a tracker keeps last. The
+     exact text is on screen before anything is written, a task with no
+     "done when" is refused, and writing it changes that file and nothing
+     else. The brief for Claude names the task and the tracker's own cycle
+     and adds what the code says about the picked items: who may call a
+     route and what it changes. The development server never writes.

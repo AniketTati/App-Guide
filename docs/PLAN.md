@@ -6,7 +6,7 @@ here and nowhere else. Every other document is a detail this one points at.
 If this file and another document disagree, **this file is right and the other
 one is a bug.** Fix it in the same commit that you noticed it.
 
-Last updated: 2026-09-26 (the PM app: Home, Check, Product and Who can do what built; not yet used by the PM)
+Last updated: 2026-09-26 (the PM app: M1–M4 built — Home, Check, Product, Who can do what, Ask for a change; not yet used by the PM)
 
 ---
 
@@ -22,7 +22,7 @@ in-session display below, then G3 and the Step 1 evidence test.
 | **Step 0** — verify competitors | ✅ **passed** | neither produces the inventory signals ([decisions.md](decisions.md) §15) |
 | **v0 — the receipt** | 🟡 **built, G1 measured and failing** | G1–G4 · steps in [notes/build-steps.md](notes/build-steps.md) |
 | v0.5 — GitHub Action + markdown | 🟡 written, never run in CI | in someone else's CI |
-| **PM app** — [notes/pm-app.md](notes/pm-app.md) | 🟡 **M1–M3 built — Home, Check, Product, Who can do what; installed in `~/Applications`; not yet used by the PM** | the Use gate in its §6, four weeks after it is usable |
+| **PM app** — [notes/pm-app.md](notes/pm-app.md) | 🟡 **M1–M4 built — Home, Check, Product, Who can do what, Ask for a change; installed in `~/Applications`; not yet used by the PM** | the Use gate in its §6, four weeks after it is usable |
 | v1 — MCP server | ⬜ not started | someone asks for it |
 | v2 — rules, frozen on first run | ⬜ not started | findings people act on |
 

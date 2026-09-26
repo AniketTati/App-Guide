@@ -10,7 +10,7 @@ import type { ProductView, RolesView, RouteRow, ScreenRow } from '../shared/api.
 type Route = Extract<Fact, { kind: 'route' }>
 
 /** Bumped whenever the view is built differently. */
-const VIEW_VERSION = 2
+const VIEW_VERSION = 3
 
 /** The product as it is on main, read from git and cached by commit — what
  *  Home counts, in full. */
@@ -57,6 +57,7 @@ export function productView(p: Product, base: string): ProductView {
 
   const screenRow = (s: Product['screens'][number]): ScreenRow => ({
     path: s.path,
+    file: s.file,
     name: s.label ?? (s.component !== null ? humanise(s.component) : s.path),
     component: s.component,
     signIn: s.signIn,

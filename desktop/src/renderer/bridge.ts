@@ -28,6 +28,9 @@ export const api: Api = {
   check: (id, workId) => call('check', id, workId) as ReturnType<Api['check']>,
   markSeen: (id) => call('markSeen', id) as ReturnType<Api['markSeen']>,
   markChecked: (id, workId) => call('markChecked', id, workId) as ReturnType<Api['markChecked']>,
+  draftTask: (id, input) => call('draftTask', id, input) as ReturnType<Api['draftTask']>,
+  addTask: (id, input) => call('addTask', id, input) as ReturnType<Api['addTask']>,
+  openClaude: () => call('openClaude') as ReturnType<Api['openClaude']>,
   copy: async (text) => {
     if (window.appguide !== undefined) { await call('copy', text); return }
     await navigator.clipboard.writeText(text)

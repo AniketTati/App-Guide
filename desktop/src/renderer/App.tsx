@@ -6,6 +6,7 @@ import { Home } from './Home.js'
 import { CheckScreen } from './Check.js'
 import { ProductScreen } from './Product.js'
 import { WhoCanScreen } from './WhoCan.js'
+import { AskSheet, type Pick } from './Ask.js'
 import { Button, Spinner } from './ui.js'
 
 type Screen = { name: 'home' } | { name: 'product' } | { name: 'who' } | { name: 'check'; workId: string }
@@ -17,6 +18,14 @@ export function App() {
   const [home, setHome] = useState<HomeView | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [asking, setAsking] = useState<Pick[] | null>(null)
+
+  // ⌘N anywhere: ask for a change.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'n') { e.preventDefault(); setAsking((a) => a ?? []) } }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   useEffect(() => {
     void api.projects().then((ps) => {
@@ -51,6 +60,7 @@ export function App() {
 
   return (
     <Frame
+      action={<button type="button" className="btn btn-primary topbar-action" onClick={() => setAsking([])}>Ask for a change <span className="kbd">⌘N</span></button>}
       title={project.name}
       subtitle={home !== null && home.project.id === project.id ? `against ${home.base}` : undefined}
       side={
@@ -77,8 +87,9 @@ export function App() {
         ? (loading && <div className="center"><Spinner label={`Reading ${project.name}… The first read takes about ten seconds; after that it’s quick.`} /></div>)
         : <Home home={home} refreshing={loading} onRefresh={() => void load(project.id)} onCheck={(workId) => setScreen({ name: 'check', workId })}
             onSeen={async () => { await api.markSeen(project.id); await load(project.id) }} />)}
-      {screen.name === 'product' && <ProductScreen projectId={project.id} />}
+      {screen.name === 'product' && <ProductScreen projectId={project.id} onAsk={(picks) => setAsking(picks)} />}
       {screen.name === 'who' && <WhoCanScreen projectId={project.id} />}
+      {asking !== null && <AskSheet projectId={project.id} initial={asking} onClose={() => setAsking(null)} />}
       {screen.name === 'check' && (
         <CheckScreen projectId={project.id} workId={screen.workId} onBack={() => { setScreen({ name: 'home' }); void load(project.id) }} />
       )}
@@ -86,11 +97,12 @@ export function App() {
   )
 }
 
-function Frame({ children, side, title, subtitle, status }: { children: React.ReactNode; side?: React.ReactNode; title?: string; subtitle?: string | undefined; status?: React.ReactNode }) {
+function Frame({ children, side, title, subtitle, status, action }: { children: React.ReactNode; side?: React.ReactNode; title?: string; subtitle?: string | undefined; status?: React.ReactNode; action?: React.ReactNode }) {
   return (
     <div className={`app ${inApp() ? 'in-app' : ''}`}>
       <header className="topbar">
         <div className="topbar-title">{title ?? 'App Guide'}{subtitle !== undefined && <span className="topbar-sub">{subtitle}</span>}</div>
+        {action !== undefined && <div className="topbar-right">{action}</div>}
       </header>
       <div className="body">
         {side !== undefined && <aside className="side">{side}</aside>}

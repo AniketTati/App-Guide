@@ -1,9 +1,10 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, Notification, utilityProcess, type IpcMainInvokeEvent, type UtilityProcess } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, Notification, shell, utilityProcess, type IpcMainInvokeEvent, type UtilityProcess } from 'electron'
+import { existsSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { gitBinary, git } from '../../../src/git/repo.js'
-import { METHODS, type Api, type CheckView, type HomeView, type Method, type ProductView, type Project } from '../shared/api.js'
+import { METHODS, type Api, type AskInput, type CheckView, type DraftView, type HomeView, type Method, type ProductView, type Project } from '../shared/api.js'
 import type { HomeResult, ProjectState } from '../core/service.js'
 
 /**
@@ -150,6 +151,39 @@ const handlers: { [M in Method]: (...args: string[]) => ReturnType<Api[M]> } = {
   async copy(text) {
     if (text.length <= 200_000) clipboard.writeText(text)
   },
+
+  async draftTask(id, input): Promise<DraftView> {
+    return ask<DraftView>({ method: 'draft', project: find(id), input: askInput(input), cacheDir: cacheDir(id) })
+  },
+
+  async addTask(id, input) {
+    return ask<{ id: string; file: string; line: number }>({ method: 'addTask', project: find(id), input: askInput(input), cacheDir: cacheDir(id) })
+  },
+
+  async openClaude() {
+    for (const path of ['/Applications/Claude.app', join(app.getPath('home'), 'Applications', 'Claude.app')]) {
+      if (existsSync(path)) return (await shell.openPath(path)) === ''
+    }
+    return false
+  },
+}
+
+/** What "Ask for a change" sends, checked field by field: only text, only
+ *  within bounds, never anything that names a file or a command. */
+function askInput(json: string): AskInput {
+  const raw = JSON.parse(json) as Record<string, unknown>
+  const text = (v: unknown, max: number): string => (typeof v === 'string' ? v.slice(0, max) : '')
+  const picks = Array.isArray(raw['picks']) ? raw['picks'].slice(0, 40).flatMap((p) => {
+    const o = p as Record<string, unknown>
+    return (o['kind'] === 'screen' || o['kind'] === 'route') && typeof o['key'] === 'string' ? [{ kind: o['kind'] as 'screen' | 'route', key: o['key'].slice(0, 300) }] : []
+  }) : []
+  return {
+    what: text(raw['what'], 4000),
+    why: text(raw['why'], 4000),
+    criteria: Array.isArray(raw['criteria']) ? raw['criteria'].slice(0, 20).map((c) => text(c, 1000)) : [],
+    picks,
+    ...(typeof raw['id'] === 'string' ? { id: raw['id'].slice(0, 8) } : {}),
+  }
 }
 
 /** Only our own page may call, only listed methods, and only with strings —
@@ -163,7 +197,7 @@ function allowed(event: IpcMainInvokeEvent): boolean {
 ipcMain.handle('api', async (event, method: unknown, args: unknown) => {
   if (!allowed(event)) throw new Error('not allowed')
   if (typeof method !== 'string' || !(METHODS as readonly string[]).includes(method)) throw new Error('unknown call')
-  if (!Array.isArray(args) || args.length > 3 || args.some((a) => typeof a !== 'string')) throw new Error('calls take ids')
+  if (!Array.isArray(args) || args.length > 3 || args.some((a) => typeof a !== 'string' || a.length > 200_000)) throw new Error('calls take ids')
   return (handlers[method as Method] as (...a: string[]) => Promise<unknown>)(...(args as string[]))
 })
 

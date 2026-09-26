@@ -6,7 +6,7 @@ import { Empty, Spinner } from './ui.js'
 
 type Selection = { kind: 'screen'; screen: ScreenRow } | { kind: 'behind' } | { kind: 'layout' }
 
-export function ProductScreen({ projectId }: { projectId: string }) {
+export function ProductScreen({ projectId, onAsk }: { projectId: string; onAsk: (picks: { kind: 'screen' | 'route'; key: string }[]) => void }) {
   const [view, setView] = useState<ProductView | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [sel, setSel] = useState<Selection | null>(null)
@@ -87,7 +87,7 @@ export function ProductScreen({ projectId }: { projectId: string }) {
       </div>
       <div className="trace">
         {sel === null ? <Empty>Choose a screen to see what it can do.</Empty>
-          : sel.kind === 'screen' ? <ScreenTrace screen={sel.screen} />
+          : sel.kind === 'screen' ? <ScreenTrace screen={sel.screen} onAsk={() => onAsk([{ kind: 'screen', key: sel.screen.path }])} />
           : sel.kind === 'behind' ? <RouteSet title="Routes no screen calls" note="Reached some other way — by the agents service, a webhook, an API key, a monitor — or not at all." routes={view.behind} />
           : <RouteSet title="Every signed-in screen" note="Called by the layout every signed-in screen sits in, so they aren’t listed under each one." routes={view.layout} />}
       </div>
@@ -95,10 +95,10 @@ export function ProductScreen({ projectId }: { projectId: string }) {
   )
 }
 
-function ScreenTrace({ screen: s }: { screen: ScreenRow }) {
+function ScreenTrace({ screen: s, onAsk }: { screen: ScreenRow; onAsk: () => void }) {
   return (
     <div className="trace-body">
-      <h2 className="trace-title">{s.name}</h2>
+      <div className="trace-head"><h2 className="trace-title">{s.name}</h2><button type="button" className="btn" onClick={onAsk}>Ask for a change here</button></div>
       <p className="lede"><span className="code">{s.path}</span> · {s.signIn === 'required' ? 'needs sign-in' : s.signIn === 'none' ? 'no sign-in' : 'sign-in not known'}{s.component !== null && s.component !== s.name ? ` · ${s.component}` : ''}</p>
       <p className="source">{s.where}</p>
       <RouteList title="What it can do" routes={s.routes} empty="It calls no route of its own — what it shows comes through the layout or shared pieces." />

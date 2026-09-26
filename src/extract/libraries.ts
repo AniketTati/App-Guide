@@ -18,7 +18,7 @@ interface PackageJson {
  * this tool exists to prevent.
  */
 /** Frameworks a detector already handles — never declare these as blind spots. */
-const SUPPORTED = new Set(['express', 'next', '@prisma/client', 'drizzle-orm'])
+const SUPPORTED = new Set(['express', 'next', 'fastify', '@prisma/client', 'drizzle-orm'])
 
 /**
  * Capabilities a package has that we do NOT read, even though we read something

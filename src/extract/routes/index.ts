@@ -2,11 +2,12 @@ import type { Fact } from '../../model/facts.js'
 import type { RouteContext, RouteDetector } from './types.js'
 import { express } from './express.js'
 import { nextAppRouter } from './next.js'
+import { fastify } from './fastify.js'
 
 export type { RouteDetector, RouteContext } from './types.js'
 
 /** Registered detectors. Adding a framework is adding one entry here. */
-export const DETECTORS: readonly RouteDetector[] = [nextAppRouter, express]
+export const DETECTORS: readonly RouteDetector[] = [nextAppRouter, express, fastify]
 
 export function scanRoutes(ctx: RouteContext): Fact[] {
   const out: Fact[] = []

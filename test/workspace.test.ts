@@ -45,10 +45,17 @@ describe('a workspace', () => {
   })
 
   it('declares a framework it cannot read when only a member depends on it', async () => {
-    // The real monorepo's API had ~290 routes and got no blind spot at all.
-    const scan = await scanLibraries(await repo(monorepo))
-    expect(gapsOf(scan.facts, 'unsupported-framework').map((g) => [g.subject, g.where.file]))
-      .toContainEqual(['fastify', 'apps/api/package.json'])
+    // The real monorepo's Fastify API had ~290 routes and got no blind spot at
+    // all, because only its member manifest named Fastify.
+    const scan = await scanLibraries(await repo({
+      ...monorepo,
+      'apps/edge/package.json': '{"name":"edge","dependencies":{"hono":"^4.0.0"}}',
+      'apps/edge/src/index.ts': "import { Hono } from 'hono'\n",
+    }))
+    const unread = gapsOf(scan.facts, 'unsupported-framework').map((g) => [g.subject, g.where.file])
+    expect(unread).toContainEqual(['hono', 'apps/edge/package.json'])
+    // Fastify is read now, so it is no longer a blind spot.
+    expect(unread.map(([subject]) => subject)).not.toContain('fastify')
   })
 
   it('still reports a package that no manifest declares', async () => {

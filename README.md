@@ -138,6 +138,13 @@ app where the report said routes existed that it couldn't list.
 These are small, idiomatic example apps, not production codebases; expect real
 apps to be messier. Reproduce it with `pnpm bench:recall`.
 
+**Fastify**, on [draft-legal](https://github.com/AniketTati/draft-legal) — an
+open-source contract-management app with ~300 API routes: all 252 routes under
+its `/api/v1` found at their full paths, and the permission check on each one
+right (252 of 252), compared with the route table the app itself generates from
+what Fastify registers. The one thing it cannot list, a library's dashboard
+mounted as a plugin, is reported as a blind spot.
+
 A later hands-on review found a common pattern those apps don't use —
 `router.route('/x').get(…).post(…)` chains — being missed silently. That is
 fixed and tested, and it is exactly why the number is published rather than

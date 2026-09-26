@@ -559,3 +559,16 @@ it is defensible.
      Node built-ins are no longer mistaken for packages. draft-legal's blind
      spots went from 84 false ones to exactly two true ones: Fastify and
      Python.
+101. **Fastify is read, and measured against the app's own route table.**
+     draft-legal generates a table of every route under `/api/v1` and the
+     permission each needs from Fastify's `onRoute` hook, and one of its tests
+     keeps that table equal to what Fastify registers: a runtime oracle the
+     project maintains itself. Against it: **252 of 252 routes at their full
+     paths, 252 of 252 permissions right**, the whole repository read in about
+     two seconds. Two things got it there: following
+     `register(plugin, { prefix })` through named imports across files, and
+     following a check given a short name
+     (`const adminGuard = requirePermission('configure', 'user')`) to what it
+     stands for. The app's own hooks are left out of each route's checks, as
+     Express's app-wide middleware is. Test files are skipped, because they
+     register the same routes again at other prefixes.

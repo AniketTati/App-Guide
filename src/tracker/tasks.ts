@@ -44,6 +44,8 @@ export interface Task {
   statusNote: string | null
   /** The tracker's latest word on it: its line under "What's left", if any. */
   latest: string | null
+  /** What is left to check by hand, as the task writes it: "Remaining check: …". */
+  remaining: string | null
 }
 
 const ID = /[A-Z]{1,3}\d{1,3}/
@@ -55,8 +57,10 @@ const FIELD = /^[-*]\s+\*\*([^*]+?):\*\*\s*(.*)$/
 const NESTED = /^\s{2,}[-*]\s+(.*)$/
 const NESTED_FIELD = /^\s{2,}[-*]\s+\*\*([^*]+?):\*\*\s*(.*)$/
 const STATUS_WORD = /^([A-Z][A-Z-]{2,})\b(?:\s*\(([^)]*)\))?/
-// "… cap (Medium)." — a severity the title ends with.
-const SEVERITY = /\s*\(((?:Critical|High|Medium|Low)\b[^)]*)\)\.?\s*$/i
+// "… cap (Medium)." — a severity the title ends with, written as trackers
+// write one: capitalised, perhaps a range, perhaps a note after a comma or a
+// semicolon. "(high traffic)" is part of a title, not a severity.
+const SEVERITY = /\s*\(((?:Critical|High|Medium|Low)(?:[-–](?:Critical|High|Medium|Low))?(?:[;,][^)]*)?)\)\.?\s*$/
 const ONLY_ID = new RegExp(`^${ID.source}$`)
 const LEFT = /^(#{2,6})\s+(?:what['’]s\s+left|what\s+remains|still\s+open|open\s+items)\b/i
 const PATH = /`?((?:[\w.@-]+\/)+[\w.@-]+\.[A-Za-z]{1,5})(?::\d+(?:[-–]\d+)?)?`?/g
@@ -79,7 +83,7 @@ export function parseTasks(file: string, text: string): Task[] {
       tasks.push(fromHeading(file, i + 1, heading[2]!, heading[3]!, lines.slice(i + 1, end)))
       continue
     }
-    const bold = BOLD_ITEM.exec(line)
+    const bold = boldItem(line)
     if (bold !== null) {
       const indent = bold[1]!.length
       let end = i + 1
@@ -95,6 +99,24 @@ export function parseTasks(file: string, text: string): Task[] {
   const notes = latestNotes(lines)
   for (const t of tasks) t.latest = notes.get(t.id) ?? null
   return tasks
+}
+
+/**
+ * A list entry's first line, split where its bold ends: after the status when
+ * there is one — a title may hold bold of its own — else at the first close.
+ */
+function boldItem(line: string): RegExpExecArray | null {
+  const m = BOLD_ITEM.exec(line)
+  if (m === null) return null
+  const from = line.indexOf('**') + 2 + m[2]!.length
+  const ends = [...line.slice(from).matchAll(/\*\*/g)].map((x) => from + x.index!)
+  const status = ends.find((e) => /[—–-]+\s+[A-Z][A-Z-]{2,}(?:\s*\([^)]*\))?\.?\s*$/.test(line.slice(0, e)))
+  if (status === undefined) return m
+  const inner = /^\s*[—–-]+\s+(.*)$/.exec(line.slice(from, status))
+  if (inner === null) return m
+  m[3] = inner[1]!
+  m[4] = line.slice(status + 2)
+  return m
 }
 
 /**
@@ -158,6 +180,7 @@ function fromHeading(file: string, line: number, id: string, title: string, body
   return {
     id, title: clean(title), status: status?.[1] ?? null, file, line, fields, criteria, worklog, cites: cites(all), mentions: mentions(all),
     text: body.join('\n').trim(), severity: fields['Severity'] ?? null, statusNote: status?.[2]?.trim() ?? null, latest: null,
+    remaining: remainingIn(body),
   }
 }
 
@@ -171,10 +194,39 @@ function fromBold(file: string, line: number, id: string, inner: string, body: s
   const all = [inner, ...body].join('\n')
   return {
     id, title: clean(title), status: m === null ? null : m[2]!, file, line,
-    fields: {}, criteria: listCriteria(body), worklog: [], cites: cites(all), mentions: mentions(all),
+    fields: {}, criteria: listCriteria(body), worklog: listNotes(body), cites: cites(all), mentions: mentions(all),
     text: dedent(body).join('\n').trim(),
     severity: severity?.[1] ?? null, statusNote: m?.[3]?.trim() ?? null, latest: null,
+    remaining: remainingIn(body),
   }
+}
+
+/** A list entry's labelled notes — `- **Fix I'd make:**` and the bullets under
+ *  it — kept like a worklog: they are the entry's own account of itself. */
+function listNotes(body: readonly string[]): { label: string; text: string }[] {
+  const lines = body.filter((l) => l.trim() !== '')
+  const top = Math.min(...lines.map((l) => l.length - l.trimStart().length))
+  const out: { label: string; text: string }[] = []
+  let current: { label: string; text: string } | null = null
+  for (const l of lines) {
+    const indent = l.length - l.trimStart().length
+    const labelled = indent === top ? /^\s*[-*]\s+\*\*([^*]+?):\*\*\s*(.*)$/.exec(l) : null
+    if (labelled !== null) {
+      current = { label: labelled[1]!.trim(), text: labelled[2]!.trim() }
+      out.push(current)
+    } else if (indent === top) current = null
+    else if (current !== null) current.text = `${current.text}\n${l.trim()}`.trim()
+  }
+  return out
+}
+
+/** "**Remaining check:** start the service and, as a SALES_REP, …" */
+function remainingIn(body: readonly string[]): string | null {
+  for (const l of body) {
+    const m = /\*\*Remaining (?:check|step|test)s?:\*\*\s*(.+)$/i.exec(l) ?? /\bRemaining (?:check|step|test)s?:\s*(.+)$/i.exec(l)
+    if (m !== null) return m[1]!.trim()
+  }
+  return null
 }
 
 const clean = (title: string): string => title.replace(/\.\s*$/, '').trim()

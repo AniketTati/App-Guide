@@ -260,7 +260,9 @@ describe('what counts as a check', () => {
 
   it('counts a 404 decided by a lookup handed the caller — "only your own" — and not one scoped by organisation', () => {
     const facts = detect(app(`
-      async function mayTouch(req: FastifyRequest, id: string) { return !!await db.find({ where: { id, ...own(req) } }) }
+      function own(req) { return req.permissionScope === 'own' ? { ownerId: req.user.sub } : {} }
+      async function loadContract(req) { return db.find({ where: { id: req.params.id } }) }
+      async function mayTouch(req: FastifyRequest, id: string) { return !!await db.find({ where: { id, orgId: req.user.orgId, ...own(req) } }) }
       export async function routes(app: FastifyInstance) {
         app.get('/runs/:id', { preHandler: requirePermission('view', 'contract') }, async (req, reply) => {
           const run = await getRun(req.user.orgId, req.params.id)
@@ -275,10 +277,21 @@ describe('what counts as a check', () => {
           if (!await inOrg(req.user.orgId, req.params.id)) return reply.status(404).send()
           return {}
         })
+        app.get('/open/:id', async (req, reply) => {
+          if (!(await loadContract(req))) return reply.status(404).send()
+          return {}
+        })
+        app.get('/nested/:id', async (req, reply) => {
+          if (!await inOrg(req.user.org.id, req.params.id)) return reply.status(404).send()
+          return {}
+        })
       }`))
     expect(find(facts, 'GET', '/api/runs/:id')?.middleware).toEqual(["requirePermission('view', 'contract')", 'in-handler check'])
     expect(find(facts, 'GET', '/api/mine/:id')?.middleware).toEqual(['in-handler check'])
     expect(find(facts, 'GET', '/api/org/:id')?.middleware).toEqual([])
+    // Handed the request, but it only reads the address: still no check.
+    expect(find(facts, 'GET', '/api/open/:id')?.middleware).toEqual([])
+    expect(find(facts, 'GET', '/api/nested/:id')?.middleware).toEqual([])
   })
 
   it('reads a plugin registered at two prefixes at both', () => {

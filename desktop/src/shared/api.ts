@@ -14,6 +14,8 @@ export interface Project {
 export interface TaskRef { id: string; title: string; status: string | null }
 
 export interface TaskView extends TaskRef {
+  /** How to see it for yourself, as the task says: its "Reported:" line. */
+  tryIt: string | null
   file: string
   line: number
   fields: Record<string, string>
@@ -27,6 +29,8 @@ export interface TaskView extends TaskRef {
   statusNote: string | null
   /** The tracker's latest word on it, from its "What's left" section. */
   latest: string | null
+  /** What is left to check by hand, as the task writes it. */
+  remaining: string | null
 }
 
 export type ChangeKind = 'route' | 'data' | 'service' | 'package' | 'code'
@@ -77,7 +81,12 @@ export interface WorkView {
   /** Named by its commits, or — before its first commit — the tracker
    *  entries it added or changed. */
   tasks: TaskRef[]
-  plan: { file: string; title: string } | null
+  /** The plan document it's working from, and how far its register has got. */
+  plan: { file: string; title: string; done: number; total: number } | null
+  /** When a file it hasn't committed last changed, and the oldest such edit:
+   *  whether Claude is at it now, and how long work has gone uncommitted. */
+  lastEdit: string | null
+  oldestEdit: string | null
   /** Other work in flight that changed some of the same files. */
   sharesWith: { label: string; files: number }[]
   lastCommit: string | null
@@ -112,6 +121,8 @@ export interface HomeView {
   skipped: { name: string; reason: string }[]
   /** Branches whose changes are all on main already (squash-merged). */
   merged: number
+  /** Branches not read: no commit in four months, or past the newest forty. */
+  untouched: number
   /** When main was last fetched — "main" means main as of then. */
   fetchedAt: string | null
   /** Since the PM last looked at main; null on the first look. */
@@ -123,7 +134,9 @@ export interface HomeView {
   readAt: string
 }
 
-export type MergeView = { state: 'clean' } | { state: 'conflicts'; files: string[] } | { state: 'uncommitted' } | { state: 'unknown' }
+/** Whether two lines of work merge. `asOfNow`: worked out from the files as
+ *  they are now, since some of it isn't committed yet. */
+export type MergeView = { state: 'clean'; asOfNow?: boolean } | { state: 'conflicts'; files: string[]; asOfNow?: boolean } | { state: 'uncommitted' } | { state: 'unknown' }
 
 export interface CheckView {
   work: WorkView
@@ -143,6 +156,18 @@ export interface CheckView {
   commits: CommitView[]
   tasks: TaskView[]
   unknownTasks: string[]
+  /** The plan it works from, read like the tracker: its releases, what "done"
+   *  means for each, how far each has got, and its notes on going live. */
+  plan: {
+    file: string
+    title: string
+    done: number
+    partly: number
+    total: number
+    releases: { name: string; short: string; done: number; total: number; doneWhen: string }[]
+    open: { id: string; title: string; status: string | null }[]
+    golive: string | null
+  } | null
   /** Screens whose code it changed: their own page, or code they run. */
   screens: { changed: { name: string; path: string; how: 'page' | 'uses'; app: string }[]; added: { name: string; path: string }[]; removed: { name: string; path: string }[] }
   /** What each role may do, before and after, where it differs. */
@@ -156,6 +181,8 @@ export interface CheckView {
     tables: { added: string[]; removed: string[]; changed: string[] }
     lists: { added: string[]; removed: string[]; changed: string[] }
     migrations: string[]
+    /** Its connection or generator settings changed. */
+    settings: boolean
   }
   /** Changed files the reader can't describe: another language, deploy settings. */
   unseen: { label: string; files: string[] }[]
@@ -169,6 +196,9 @@ export interface CheckView {
   followUp: string
   /** What to paste into Claude when it is ready: push it and open a PR. */
   ship: string
+  /** The local port this work's web app is running on, if it is: its screens
+   *  can be opened there. */
+  running: number | null
 }
 
 export interface UnmatchedView { method: string; path: string; where: string; screen: string | null; via: string | null }
@@ -299,7 +329,10 @@ export interface Api {
   addTask(projectId: string, input: string): Promise<{ id: string; file: string; line: number }>
   /** Bring the Claude app forward. */
   openClaude(): Promise<boolean>
+  /** Open a screen in the copy of the app that piece of work is running
+   *  locally, in the browser. */
+  openScreen(projectId: string, workId: string, path: string): Promise<boolean>
 }
 
 export type Method = keyof Api
-export const METHODS: readonly Method[] = ['projects', 'addProject', 'removeProject', 'home', 'product', 'check', 'markSeen', 'markChecked', 'markPublic', 'copy', 'draftTask', 'addTask', 'openClaude']
+export const METHODS: readonly Method[] = ['projects', 'addProject', 'removeProject', 'home', 'product', 'check', 'markSeen', 'markChecked', 'markPublic', 'copy', 'draftTask', 'addTask', 'openClaude', 'openScreen']

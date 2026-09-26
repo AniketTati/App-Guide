@@ -396,7 +396,7 @@ export const fastify: RouteDetector = {
         let found = false
         const visit = (node: ts.Node): void => {
           if (found) return
-          if (depth === 0 && caller !== null && ts.isIfStatement(node) && handsOverCaller(node.expression, caller, fn.idx.file.ast) && notFound(node.thenStatement)) { found = true; return }
+          if (depth === 0 && caller !== null && ts.isIfStatement(node) && handsOverCaller(node.expression, caller, fn.idx) && notFound(node.thenStatement)) { found = true; return }
           if (ts.isCallExpression(node)) {
             const callee = unwrap(node.expression)
             if (ts.isPropertyAccessExpression(callee)) {
@@ -416,23 +416,61 @@ export const fastify: RouteDetector = {
       return scan(fn.idx, fn.fn.body, 0)
     }
 
-    /** A call in `cond` given the request, or the caller's own identity from
-     *  it — not their organisation, which every lookup is scoped by. */
-    const handsOverCaller = (cond: ts.Expression, caller: string, src: ts.SourceFile): boolean => {
+    /**
+     * A call in `cond` that learns who is calling: given the caller's own
+     * identity from the request (`req.user.sub` — never their organisation,
+     * which every lookup is scoped by), or given the request whole and, up to
+     * two calls deep, reading that identity from it. A lookup handed the
+     * request that only reads its address is not a check.
+     */
+    const handsOverCaller = (cond: ts.Expression, caller: string, idx: FileIndex): boolean => {
       let yes = false
-      const isCaller = (e: ts.Expression): boolean => {
-        const x = unwrap(e)
-        if (ts.isIdentifier(x)) return x.text === caller
-        if (!ts.isPropertyAccessExpression(x)) return false
-        const chain = x.getText(src).split('.')
-        return chain[0] === caller && chain[1] === 'user' && !/org|tenant|workspace|team/i.test(chain[chain.length - 1]!)
-      }
       const visit = (n: ts.Node): void => {
         if (yes) return
-        if (ts.isCallExpression(n) && n.arguments.some(isCaller)) { yes = true; return }
+        if (ts.isCallExpression(n)) {
+          if (n.arguments.some((a) => identityOf(unwrap(a), caller, idx.file.ast))) { yes = true; return }
+          const at = n.arguments.findIndex((a) => { const x = unwrap(a); return ts.isIdentifier(x) && x.text === caller })
+          if (at !== -1 && readsCallerThrough(n, at, idx, 0)) { yes = true; return }
+        }
         ts.forEachChild(n, visit)
       }
       visit(cond)
+      return yes
+    }
+
+    /** `req.user.sub`, `req.user.id` — the caller's identity, not their organisation. */
+    const identityOf = (e: ts.Expression, caller: string, src: ts.SourceFile): boolean => {
+      if (!ts.isPropertyAccessExpression(e)) return false
+      const chain = e.getText(src).replace(/\s+/g, '').split('.')
+      return chain[0] === caller && chain[1] === 'user' && chain.length >= 3 && !chain.slice(2).some((seg) => /org|tenant|workspace|team/i.test(seg))
+    }
+
+    /** Whether the function a call reaches reads the caller's identity from
+     *  the argument at `at`. */
+    const readsCallerThrough = (call: ts.CallExpression, at: number, idx: FileIndex, depth: number): boolean => {
+      const callee = unwrap(call.expression)
+      if (!ts.isIdentifier(callee) || depth > 2) return false
+      const inner = resolveFn(idx, callee.text)
+      if (inner === null || inner === 'package' || inner.fn.body === undefined) return false
+      const p = inner.fn.parameters[at]?.name
+      if (p === undefined || !ts.isIdentifier(p)) return false
+      const param = p.text
+      const src = inner.idx.file.ast
+      let yes = false
+      const visit = (n: ts.Node): void => {
+        if (yes) return
+        if (ts.isPropertyAccessExpression(n) && identityOf(n, param, src)) { yes = true; return }
+        // const { sub, role } = req.user
+        if (ts.isVariableDeclaration(n) && ts.isObjectBindingPattern(n.name) && n.initializer !== undefined
+          && unwrap(n.initializer).getText(src).replace(/\s+/g, '') === `${param}.user`
+          && n.name.elements.some((el) => !/org|tenant|workspace|team/i.test((el.propertyName ?? el.name).getText(src)))) { yes = true; return }
+        if (ts.isCallExpression(n)) {
+          const next = n.arguments.findIndex((a) => { const x = unwrap(a); return ts.isIdentifier(x) && x.text === param })
+          if (next !== -1 && readsCallerThrough(n, next, inner.idx, depth + 1)) { yes = true; return }
+        }
+        ts.forEachChild(n, visit)
+      }
+      visit(inner.fn.body)
       return yes
     }
 

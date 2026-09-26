@@ -4,7 +4,7 @@ declare global {
   interface Window {
     appguide?: {
       call(method: string, ...args: string[]): Promise<unknown>
-      onChanged(listener: (projectId: string, workIds: string[]) => void): () => void
+      onChanged(listener: (projectId: string, moved: [string, string][]) => void): () => void
     }
   }
 }
@@ -32,6 +32,7 @@ export const api: Api = {
   draftTask: (id, input) => call('draftTask', id, input) as ReturnType<Api['draftTask']>,
   addTask: (id, input) => call('addTask', id, input) as ReturnType<Api['addTask']>,
   openClaude: () => call('openClaude') as ReturnType<Api['openClaude']>,
+  openScreen: (id, workId, path) => call('openScreen', id, workId, path) as ReturnType<Api['openScreen']>,
   copy: async (text) => {
     if (window.appguide !== undefined) { await call('copy', text); return }
     await navigator.clipboard.writeText(text)
@@ -39,7 +40,7 @@ export const api: Api = {
 }
 
 export const inApp = (): boolean => window.appguide !== undefined
-/** Something changed between looks: new commits, or — for the work named —
- *  edits Claude is still making. */
-export const onChanged = (listener: (projectId: string, workIds: string[]) => void): (() => void) =>
+/** Something changed between looks: new commits, or — for the work named,
+ *  with its new fingerprint — edits Claude is still making. */
+export const onChanged = (listener: (projectId: string, moved: [string, string][]) => void): (() => void) =>
   window.appguide?.onChanged(listener) ?? (() => undefined)

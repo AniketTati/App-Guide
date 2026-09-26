@@ -7,8 +7,8 @@ built, in what order, and when to stop. Status lives in [../PLAN.md](../PLAN.md)
 
 **Revised after five critiques** — developer, the PM themselves, product,
 design, go-to-market. What changed and why: decisions #102–#108. **Built, then
-critiqued again** by the PM, a designer and a code review, and fixed: §9 and
-decisions #116–#126.
+critiqued twice more** by the PM, a designer and code reviews, and fixed: §9
+and decisions #116–#136.
 
 ## 1. Who, and what they already do
 
@@ -251,7 +251,14 @@ Three critiques of the running app, against draft-legal. What they changed:
 - **Design**: one accent for "needs you"; one route line everywhere; the
   answer as each page's headline; "public on purpose" marks; view as a role.
 
+A second round (#127–#136): the PM's facts made right (tables that only
+gained links, routes blamed for moved comments), a code review's thirteen bugs
+fixed — one had made adding a task impossible in the installed app — waiting
+tasks verified or decided where they are, plans read like the tracker, merge
+answers for uncommitted work, whether Claude is at it now, and screens opened
+in the work's own running copy.
+
 Still open, not built: a Claude session's own title beside its worktree;
 pull-request and CI state (needs the network and the PM's GitHub sign-in);
 the receipt hook offered from inside the app; reading the Python agents
-service.
+service; whether a role's "own only" is enforced deeper than the route.

@@ -4,7 +4,7 @@ import { Fragment, type ReactNode } from 'react'
  * The little markdown a tracker uses inline — **bold** and `code` — as text,
  * never as HTML: whatever a tracker says is shown, never run.
  */
-export function Md({ text }: { text: string }) {
+export function Md({ text = '' }: { text: string | undefined }) {
   const out: ReactNode[] = []
   const re = /\*\*([^*]+)\*\*|`([^`]+)`/g
   let last = 0
@@ -19,7 +19,7 @@ export function Md({ text }: { text: string }) {
 }
 
 /** A block of tracker text: its lines, bullets kept as bullets. */
-export function MdBlock({ text }: { text: string }) {
+export function MdBlock({ text = '' }: { text: string | undefined }) {
   const lines = text.split('\n').filter((l) => l.trim() !== '')
   return (
     <div className="md">

@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { HomeView, Project } from '../shared/api.js'
 import { api, inApp, onChanged } from './bridge.js'
-import { clock } from './format.js'
+import { clock, plural } from './format.js'
 import { Home } from './Home.js'
 import { CheckScreen } from './Check.js'
 import { ProductScreen } from './Product.js'
@@ -60,8 +60,13 @@ export function App() {
   }, [])
 
   useEffect(() => { if (current !== null) void load(current) }, [current, load])
-  // When the app notices new commits between looks, Home re-reads itself.
-  useEffect(() => onChanged((id) => { if (id === current && screen.name === 'home') void load(id) }), [current, screen, load])
+  // New commits or new work between looks: Home re-reads itself. Edits Claude
+  // is still making refresh it too, but at most every two minutes.
+  const lastRead = useRef(0)
+  useEffect(() => onChanged((id, moved) => {
+    if (id !== current || screen.name !== 'home') return
+    if (moved.length === 0 || Date.now() - lastRead.current > 120_000) { lastRead.current = Date.now(); void load(id) }
+  }), [current, screen, load])
 
   const add = async (): Promise<void> => {
     const p = await api.addProject()
@@ -149,7 +154,7 @@ function StatusBar({ home }: { home: HomeView }) {
       {home.blind.length === 0
         ? <span>everything on main was readable</span>
         : parts.map((b, i) => <span key={i} className="status-item" title={`${b.text}\nfirst one: ${b.example}`}><span className="hatch" />{b.short}</span>)}
-      {rest.length > 0 && <span className="status-more" title={rest.map((b) => b.text).join('\n')}>{parts.length > 0 ? `+${rest.length} smaller` : `${rest.length} smaller gaps`}</span>}
+      {rest.length > 0 && <span className="status-more" title={rest.map((b) => b.text).join('\n')}>{parts.length > 0 ? `+${rest.length} more` : `${plural(rest.length, 'thing')} I can’t read`}</span>}
       <span className="status-spacer" />
       <span className="status-read">read {clock(home.readAt)}</span>
     </>

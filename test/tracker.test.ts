@@ -151,3 +151,19 @@ describe('the shapes a long-running tracker grows into', () => {
     expect(waiting).toEqual(['P1', 'Q30', 'Q54'])
   })
 })
+
+describe('titles that look like something else', () => {
+  it('keeps a lower-case aside in the title, and bold inside a title', () => {
+    const t = parseTasks('T.md', [
+      '- **Q1 — Slow under load (high traffic). — TODO.**',
+      '- **Q2 — Make **bold** labels readable. — DONE.** Found in review.',
+      '- **Q3 — Fix export (Low, latent). — DONE.**',
+    ].join('\n'))
+    expect(t.map((x) => [x.id, x.title, x.status, x.severity])).toEqual([
+      ['Q1', 'Slow under load (high traffic)', 'TODO', null],
+      ['Q2', 'Make **bold** labels readable', 'DONE', null],
+      ['Q3', 'Fix export', 'DONE', 'Low, latent'],
+    ])
+    expect(t[1]!.text).toBe('Found in review.')
+  })
+})

@@ -62,9 +62,11 @@ export interface Worktree {
 
 export async function worktrees(root: string): Promise<Worktree[]> {
   const out: Worktree[] = []
+  // NUL-separated where git can (2.36 and later), so no path comes back quoted.
+  const listed = await git(root, ['worktree', 'list', '--porcelain', '-z']).then((t) => t.split(/\0\0+/).map((b) => b.split('\0')),
+    async () => (await git(root, ['worktree', 'list', '--porcelain'])).split(/\n\n+/).map((b) => b.split('\n')))
   // git lists the repository's own checkout first.
-  for (const [index, block] of (await git(root, ['worktree', 'list', '--porcelain', '-z'])).split(/\0\0+/).entries()) {
-    const lines = block.split('\0')
+  for (const [index, lines] of listed.entries()) {
     const field = (name: string): string | undefined => lines.find((l) => l === name || l.startsWith(`${name} `))?.slice(name.length + 1)
     const path = field('worktree')
     const head = field('HEAD')
@@ -220,13 +222,19 @@ export async function mergesCleanly(root: string, ours: string, theirs: string):
   try {
     const common = (await git(root, ['rev-parse', '--git-common-dir'])).trim()
     const objects = join(isAbsolute(common) ? common : join(root, common), 'objects')
-    await git(root, ['merge-tree', '--write-tree', '--name-only', '--no-messages', ours, theirs], { GIT_OBJECT_DIRECTORY: scratch, GIT_ALTERNATE_OBJECT_DIRECTORIES: objects })
-    return { clean: true }
+    // Git splits this list at colons; a path holding one is written quoted.
+    const alternate = /[:"\\]/.test(objects) ? `"${objects.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"` : objects
+    const out = await git(root, ['merge-tree', '--write-tree', '--name-only', '--no-messages', '-z', ours, theirs], { GIT_OBJECT_DIRECTORY: scratch, GIT_ALTERNATE_OBJECT_DIRECTORIES: alternate })
+    return /^[0-9a-f]{40,64}/.test(out) ? { clean: true } : null
   } catch (e) {
-    // Exit 1 with the conflicted files after the tree id; anything else is not an answer.
-    const out = (e as { code?: number; stdout?: string }).code === 1 ? (e as { stdout?: string }).stdout : undefined
-    if (out === undefined) return null
-    return { clean: false, files: out.split('\n').slice(1).map((l) => l.trim()).filter(Boolean) }
+    // Exit 1 with a tree id and the conflicted files is a conflict. Exit 1
+    // for anything else — "not something we can merge" — is not an answer.
+    const err = e as { code?: number; stdout?: string }
+    if (err.code !== 1 || err.stdout === undefined) return null
+    const [tree, ...files] = err.stdout.split('\0')
+    if (!/^[0-9a-f]{40,64}$/.test(tree ?? '')) return null
+    const names = [...new Set(files.filter((f) => f !== ''))]
+    return names.length === 0 ? null : { clean: false, files: names }
   } finally {
     await rm(scratch, { recursive: true, force: true })
   }
@@ -243,17 +251,77 @@ export async function upstreamOf(root: string, branch: string, head: string): Pr
   }
 }
 
+/** One block of changed lines, as its new version numbers them. */
+export interface Hunk {
+  start: number
+  end: number
+  added: string[]
+  removed: string[]
+}
+
 /**
- * The lines of `file` a change touched, as line ranges in its new version.
- * Against the working tree when `head` is null — uncommitted edits included.
+ * The blocks of `file` a change touched, in its new version's line numbers,
+ * against the working tree when `head` is null — uncommitted edits included.
+ * A block that only touches comments or blank lines is left out: a comment
+ * moved above a route is not a change to what that route does.
  */
-export async function changedLines(cwd: string, from: string, head: string | null, file: string): Promise<[number, number][]> {
+export async function changedHunks(cwd: string, from: string, head: string | null, file: string): Promise<Hunk[]> {
   const out = await git(cwd, ['diff', '-U0', '--no-color', '--no-ext-diff', from, ...(head === null ? [] : [head]), '--', file]).catch(() => '')
-  const ranges: [number, number][] = []
-  for (const m of out.matchAll(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/gm)) {
-    const start = Number(m[1])
-    const count = m[2] === undefined ? 1 : Number(m[2])
-    ranges.push([start, start + Math.max(count, 1) - 1])
+  const hunks: Hunk[] = []
+  let current: Hunk | null = null
+  for (const line of out.split('\n')) {
+    const h = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(line)
+    if (h !== null) {
+      const start = Number(h[1])
+      const count = h[2] === undefined ? 1 : Number(h[2])
+      current = { start, end: start + Math.max(count, 1) - 1, added: [], removed: [] }
+      hunks.push(current)
+    } else if (current !== null && line.startsWith('+') && !line.startsWith('+++')) current.added.push(line.slice(1))
+    else if (current !== null && line.startsWith('-') && !line.startsWith('---')) current.removed.push(line.slice(1))
   }
-  return ranges
+  return hunks.filter((k) => [...k.added, ...k.removed].some((l) => !isCommentOrBlank(l)))
+}
+
+const isCommentOrBlank = (line: string): boolean => /^\s*($|\/\/|\/\*|\*|#(?!!))/.test(line)
+
+/** The line ranges of `changedHunks`. */
+export async function changedLines(cwd: string, from: string, head: string | null, file: string): Promise<[number, number][]> {
+  return (await changedHunks(cwd, from, head, file)).map((k) => [k.start, k.end])
+}
+
+/** One file as it was where two lines of work parted, and as each has it now
+ *  (null where it doesn't exist). */
+export interface FileSides { path: string; base: string | null; ours: string | null; theirs: string | null }
+
+/**
+ * Whether files merge without conflicts, from their contents alone — for
+ * work that isn't committed yet, the files as they are now. Each is merged
+ * with `git merge-file` on scratch copies; nothing in a repository is read or
+ * written.
+ */
+export async function filesMerge(files: readonly FileSides[]): Promise<{ clean: true } | { clean: false; files: string[] }> {
+  const conflicts: string[] = []
+  let scratch: string | null = null
+  try {
+    for (const f of files) {
+      if (f.ours === f.theirs || f.base === f.theirs || f.base === f.ours) continue
+      // Added on both sides differently, or changed on one side and removed on the other.
+      if (f.ours === null || f.theirs === null || f.base === null) { conflicts.push(f.path); continue }
+      scratch ??= await mkdtemp(join(tmpdir(), 'appguide-merge-'))
+      const [o, b, t] = ['ours', 'base', 'theirs'].map((n) => join(scratch!, n))
+      await writeFile(o!, f.ours)
+      await writeFile(b!, f.base)
+      await writeFile(t!, f.theirs)
+      try {
+        await exec(await gitBinary(), ['merge-file', '-p', '--quiet', o!, b!, t!], { cwd: scratch, env: env(), timeout: TIMEOUT, maxBuffer: 64 * 1024 * 1024 })
+      } catch (e) {
+        // The exit code is the number of conflicts; a negative one is an error.
+        if (((e as { code?: number }).code ?? -1) > 0) conflicts.push(f.path)
+        else throw e
+      }
+    }
+  } finally {
+    if (scratch !== null) await rm(scratch, { recursive: true, force: true })
+  }
+  return conflicts.length === 0 ? { clean: true } : { clean: false, files: conflicts }
 }

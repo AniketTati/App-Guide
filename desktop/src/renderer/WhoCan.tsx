@@ -62,7 +62,7 @@ export function WhoCanScreen({ projectId }: { projectId: string }) {
                         {cells.length === 0 ? <span className="dim">—</span> : (
                           <button type="button" onClick={() => setCell({ role, row: row.resource })} title={`${plural(n, 'route')} this opens`}>
                             {cells.map((c, i) => <Grant key={i} cell={c} />)}
-                            <span className="cell-count">{plural(n, 'route')}</span>
+                            <span className="cell-count">{n === 0 ? 'no route checks it' : plural(n, 'route')}</span>
                           </button>
                         )}
                       </td>

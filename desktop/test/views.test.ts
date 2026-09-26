@@ -75,16 +75,27 @@ describe('what a Check says first', () => {
     const empty = { route: [], data: [], service: [], package: [], code: [] }
     const base = {
       changes: empty, touched: [], roleChanges: [], screens: { changed: [], added: [], removed: [] },
-      schema: { tables: { added: [], removed: [], changed: [] }, lists: { added: [], removed: [], changed: [] }, migrations: [] },
+      schema: { tables: { added: [], removed: [], changed: [] }, lists: { added: [], removed: [], changed: [] }, migrations: [], settings: false },
       unmatched: { added: [], fixed: [] }, unseen: [],
     }
     expect(sentenceOf(base as never)).toMatch(/^No new routes, checks, data, packages or services\./)
     expect(sentenceOf({ ...base, unseen: [{ label: 'Python', files: ['a.py', 'b.py'] }] } as never)).toBe(
       'Nothing changed in the parts I can read — but it changes Python (2 files), which I can’t read. Ask Claude what those changes do before you merge.')
-    expect(sentenceOf({ ...base, roleChanges: [{ role: 'FINANCE', resource: 'renewal', before: 'view', after: 'view, approve' }],
+    expect(sentenceOf({ ...base, roleChanges: [{ role: 'FINANCE', resource: 'renewal', before: 'view', after: 'approve, view' }],
       schema: { ...base.schema, tables: { added: ['FieldRun', 'FieldSuggestion'], removed: [], changed: [] } } } as never)).toBe('It changes what 1 role may do and adds 2 tables.')
     // A route that was there before but does something else now is a change.
     expect(sentenceOf({ ...base, touched: [{}, {}], screens: { changed: [{ how: 'page' }], added: [], removed: [] } } as never)).toBe('It changes the code behind 2 existing routes and changes 1 screen.')
+    // Every list the page shows has words: none of these is "nothing".
+    const lone = [
+      { changes: { ...empty, data: [{ title: 'invoice' }] } },
+      { schema: { ...base.schema, migrations: ['add invoices'] } },
+      { schema: { ...base.schema, lists: { added: [], removed: [], changed: ['Role'] } } },
+      { schema: { ...base.schema, settings: true } },
+      { screens: { changed: [], added: [], removed: [{ name: 'Old', path: '/old' }] } },
+      { screens: { changed: [{ how: 'uses' }], added: [], removed: [] } },
+      { changes: { ...empty, package: [{ title: 'zod', type: 'changed' }] } },
+    ]
+    for (const over of lone) expect(sentenceOf({ ...base, ...over } as never), JSON.stringify(over)).toMatch(/^It /)
   })
 
   it('reads a change to the role table as what each role may now do', async () => {
@@ -93,16 +104,18 @@ describe('what a Check says first', () => {
       { resource: 'renewal', cells: { ADMIN: [{ actions: ['*'], scope: 'org' }], FINANCE: finance } },
     ] }], routes: {} })
     expect(roleChanges(table([{ actions: ['view'], scope: 'org' }]), table([{ actions: ['view', 'approve'], scope: 'org' }]))).toEqual([
-      { role: 'FINANCE', resource: 'renewal', before: 'view', after: 'view, approve' },
+      { role: 'FINANCE', resource: 'renewal', before: 'view', after: 'approve, view' },
     ])
     expect(roleChanges(table([]), table([{ actions: ['view'], scope: 'own' }]))).toEqual([{ role: 'FINANCE', resource: 'renewal', before: 'nothing', after: 'view (own only)' }])
+    // The same grants written in another order are not a change.
+    expect(roleChanges(table([{ actions: ['view', 'approve'], scope: 'org' }]), table([{ actions: ['approve', 'view'], scope: 'org' }]))).toEqual([])
   })
 })
 
 describe('work in flight', () => {
   const work = (over: Partial<import('../../src/check/work.js').Work>): import('../../src/check/work.js').Work => ({
     id: '/w', branch: 'fix/x', path: '/w', primary: false, head: 'h1', mergeBase: 'm', ahead: 1, uncommitted: [], tasks: ['EE1'], edited: [], plan: null,
-    changed: ['a.ts'], lastCommit: new Date().toISOString(), fingerprint: 'f1', ...over,
+    changed: ['a.ts'], lastCommit: new Date().toISOString(), fingerprint: 'f1', lastEdit: null, oldestEdit: null, ...over,
   })
   const tasks = new Map([['EE1', { id: 'EE1', title: 'Every action is a decision', status: 'DONE' } as never]])
 
@@ -122,7 +135,7 @@ describe('work in flight', () => {
 
   it('is named by its plan before its first commit, and set apart when weeks old', async () => {
     const { workView } = await import('../src/core/views.js')
-    expect(workView(work({ tasks: [], plan: { file: 'docs/39-X.md', title: 'Capture, fix and trust contract data' } }), [], tasks, undefined).label).toBe('Capture, fix and trust contract data')
+    expect(workView(work({ tasks: [], plan: { file: 'docs/39-X.md', title: 'Capture, fix and trust contract data', done: 3, total: 9 } }), [], tasks, undefined).label).toBe('Capture, fix and trust contract data')
     expect(workView(work({ path: null, lastCommit: '2026-07-01T00:00:00Z' }), [], tasks, undefined, Date.parse('2026-09-26T00:00:00Z'))).toMatchObject({ stale: true, where: 'branch', ready: false })
   })
 })

@@ -5,6 +5,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { addDraftedTask, draftTask } from '../src/core/ask.js'
+import { askInput } from '../src/core/input.js'
 
 const run = promisify(execFile)
 const env = { ...process.env, GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@example.com', GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@example.com' }
@@ -55,7 +56,8 @@ describe('asking for a change', () => {
     // The preview is exactly what would be added: the section heading too.
     expect(d.text.split('\n').slice(0, 3)).toEqual([expect.stringMatching(/^## Asked for in App Guide \(\d{4}-\d\d-\d\d\)$/), '', '- **FF1 — Let Finance approve renewals (Medium). — TODO.**'])
     expect(d.text).toContain('`POST /api/v1/approvals/:instanceId/decide` in `apps/api/src/routes/approvals.ts:2`')
-    expect(d.brief.split('\n')[0]).toMatch(/^First make sure task FF1 below is in FIX_TRACKER\.md/)
+    expect(d.brief.split('\n')[0]).toBe('Do this on a new branch from main, in a new worktree.')
+    expect(d.brief.split('\n')[1]).toMatch(/^First make sure task FF1 below is in FIX_TRACKER\.md/)
     expect(d.brief).toContain('it changes approvalStep')
     expect((await run('git', ['status', '--porcelain'], { cwd: root })).stdout).toBe('')
   }, 60_000)
@@ -80,13 +82,15 @@ describe('asking for a change', () => {
     }
   }, 60_000)
 
-  it('adds it before the tracker’s log, and changes nothing else', async () => {
-    const d = await draftTask(root, input, cache)
-    const r = await addDraftedTask(root, { ...input, hash: d.hash }, cache)
+  it('adds it before the tracker’s log, and changes nothing else — through the same checks the app’s calls go through', async () => {
+    // As the page sends it: JSON, through the main process's input check.
+    const d = await draftTask(root, askInput(JSON.stringify({ ...input, severity: 'High' })), cache)
+    expect(d.text).toContain('(High). — TODO.**')
+    const r = await addDraftedTask(root, askInput(JSON.stringify({ ...input, severity: 'High', hash: d.hash })), cache)
     expect(r).toMatchObject({ id: 'FF1', file: 'FIX_TRACKER.md' })
     const tracker = await readFile(join(root, 'FIX_TRACKER.md'), 'utf8')
     expect(tracker).toContain(d.text)
-    expect(tracker.indexOf('- **FF1 — Let Finance approve renewals. — TODO.**')).toBeLessThan(tracker.indexOf('## Run log'))
+    expect(tracker.indexOf('- **FF1 — Let Finance approve renewals (High). — TODO.**')).toBeLessThan(tracker.indexOf('## Run log'))
     expect((await run('git', ['status', '--porcelain'], { cwd: root })).stdout.trim()).toBe('M FIX_TRACKER.md')
   }, 60_000)
 })

@@ -12,6 +12,7 @@ import {
   type Commit,
 } from '../git/repo.js'
 import { parseTasks, readTasks, taskIdsOf, WAITING, type Task } from '../tracker/tasks.js'
+import { progress, readPlan } from '../tracker/plan.js'
 
 /** A branch or worktree with work that is not on main yet. */
 export interface Work {
@@ -32,8 +33,9 @@ export interface Work {
   /** Task IDs whose tracker entries this work added or changed — how work
    *  with no commits yet says what it is for. */
   edited: string[]
-  /** A plan document it added or changed: docs/39-FIELD-CAPTURE-PLAN.md. */
-  plan: { file: string; title: string } | null
+  /** A plan document it added or changed — docs/39-FIELD-CAPTURE-PLAN.md —
+   *  and how far its register has got, where it keeps one. */
+  plan: { file: string; title: string; done: number; total: number } | null
   /** Files that differ from main: committed and uncommitted. */
   changed: string[]
   /** The newest commit's date, or null if it has none of its own. */
@@ -41,6 +43,9 @@ export interface Work {
   /** Changes whenever anything in it does — a commit, or any edit to an
    *  uncommitted file — so "checked" can't outlive what was checked. */
   fingerprint: string
+  /** When its uncommitted files were last, and first, changed. */
+  lastEdit: string | null
+  oldestEdit: string | null
 }
 
 export interface WorkList {
@@ -51,6 +56,8 @@ export interface WorkList {
   skipped: { name: string; reason: string }[]
   /** Branches whose every changed file is already the same on main. */
   merged: number
+  /** Branches left unread: no commit in four months, or past the newest forty. */
+  untouched: number
   /** When main was last fetched: "main" is main as of then. */
   fetchedAt: string | null
 }
@@ -108,7 +115,7 @@ export async function listWork(root: string, opts: { branches?: boolean } = {}):
         tasks: unique(commits.slice().reverse().flatMap((c) => taskIdsOf(c.subject))),
         changed: unique([...committed, ...dirty]).sort(),
         lastCommit: commits[0]?.date ?? null,
-        fingerprint: await fingerprint(wt.path, wt.head, dirty),
+        ...(await fingerprint(wt.path, wt.head, dirty)),
         ...(await ownWords(root, mb, unique([...committed, ...dirty]), (f) => readFile(join(wt.path, f), 'utf8'))),
       })
     } catch (e) {
@@ -118,16 +125,22 @@ export async function listWork(root: string, opts: { branches?: boolean } = {}):
     }
   }
   let merged = 0
+  let untouched = 0
   if (opts.branches === true) {
     const taken = new Set(all.flatMap((w) => (w.branch === null ? [] : [w.branch])))
-    const refs = (await git(root, ['for-each-ref', '--format=%(refname)%00%(objectname)', 'refs/heads', 'refs/remotes/origin']))
-      .split('\n').filter(Boolean).map((l) => { const [ref = '', sha = ''] = l.split('\0'); return { ref, sha } })
+    // Newest first, with when each last moved: a repository with hundreds of
+    // branches is read for its recent ones, not all of them on every look.
+    const refs = (await git(root, ['for-each-ref', '--sort=-committerdate', '--format=%(refname)%00%(objectname)%00%(committerdate:unix)', 'refs/heads', 'refs/remotes/origin']))
+      .split('\n').filter(Boolean).map((l) => { const [ref = '', sha = '', when = '0'] = l.split('\0'); return { ref, sha, when: Number(when) * 1000 } })
     const local = new Set(refs.filter((r) => r.ref.startsWith('refs/heads/')).map((r) => r.ref.slice('refs/heads/'.length)))
     const baseName = base.replace(/^origin\//, '')
-    for (const { ref, sha } of refs) {
+    let read = 0
+    for (const { ref, sha, when } of refs) {
       const isLocal = ref.startsWith('refs/heads/')
       const name = isLocal ? ref.slice('refs/heads/'.length) : ref.slice('refs/remotes/origin/'.length)
       if (name === 'HEAD' || name === baseName || taken.has(name) || (!isLocal && local.has(name))) continue
+      if (read >= 40 || Date.now() - when > 120 * 86_400_000) { untouched++; continue }
+      read++
       const short = isLocal ? name : `origin/${name}`
       try {
         const mb = await mergeBase(root, base, sha)
@@ -140,7 +153,7 @@ export async function listWork(root: string, opts: { branches?: boolean } = {}):
         out.push({
           id: `branch:${short}`, branch: short, path: null, primary: false, head: sha, mergeBase: mb,
           ahead: commits.length, uncommitted: [], tasks: unique(commits.slice().reverse().flatMap((c) => taskIdsOf(c.subject))),
-          changed: changed.sort(), lastCommit: commits[0]?.date ?? null, fingerprint: sha,
+          changed: changed.sort(), lastCommit: commits[0]?.date ?? null, fingerprint: sha, lastEdit: null, oldestEdit: null,
           ...(await ownWords(root, mb, changed, (f) => git(root, ['show', `${sha}:${f}`]))),
         })
       } catch (e) {
@@ -148,7 +161,7 @@ export async function listWork(root: string, opts: { branches?: boolean } = {}):
       }
     }
   }
-  return { base, baseHead, work: out, skipped, merged, fetchedAt: await fetchedAt(root) }
+  return { base, baseHead, work: out, skipped, merged, untouched, fetchedAt: await fetchedAt(root) }
 }
 
 /**
@@ -166,23 +179,31 @@ async function ownWords(root: string, mb: string, changed: readonly string[], re
     const was = new Map(parseTasks(file, before).map((t) => [t.id, `${t.status}\0${t.text}`]))
     for (const t of parseTasks(file, now)) if (was.get(t.id) !== `${t.status}\0${t.text}`) edited.push(t.id)
     // A numbered plan in docs/, new or changed: "docs/39-FIELD-CAPTURE-PLAN.md".
-    if (plan === null && /^docs\/(?:[^/]+\/)*\d+[-_][^/]*\.md$/i.test(file) && !isTrackerFile(file)) {
-      const title = /^#\s+(.+?)\s*$/m.exec(now)?.[1]
-      if (title !== undefined) plan = { file, title: title.replace(/[*_`]/g, '').replace(/^\d+\s*[—–:.-]\s*/, '') }
+    if (plan === null && /^docs\/(?:[^/]+\/)*\d+[-_][^/]*\.md$/i.test(file) && !isTrackerFile(file) && /^#\s+\S/m.test(now)) {
+      const read = readPlan(file, now)
+      const p = progress(read)
+      plan = { file, title: read.title, done: p.done, total: p.total }
     }
   }
   return { edited: unique(edited), plan }
 }
 
-/** A worktree's state in one value: its commit, and each uncommitted file's
- *  size and modification time. */
-async function fingerprint(dir: string, head: string, files: readonly string[]): Promise<string> {
+/** A worktree's state in one value — its commit, and each uncommitted file's
+ *  size and modification time — and when those files last and first changed. */
+async function fingerprint(dir: string, head: string, files: readonly string[]): Promise<{ fingerprint: string; lastEdit: string | null; oldestEdit: string | null }> {
   const h = createHash('sha1').update(head)
+  let newest = -Infinity
+  let oldest = Infinity
   for (const f of [...files].sort()) {
     const st = await stat(join(dir, f)).catch(() => null)
     h.update(`\0${f}\0${st === null ? 'gone' : `${st.size}:${st.mtimeMs}`}`)
+    if (st !== null) { newest = Math.max(newest, st.mtimeMs); oldest = Math.min(oldest, st.mtimeMs) }
   }
-  return h.digest('hex').slice(0, 16)
+  return {
+    fingerprint: h.digest('hex').slice(0, 16),
+    lastEdit: Number.isFinite(newest) ? new Date(newest).toISOString() : null,
+    oldestEdit: Number.isFinite(oldest) ? new Date(oldest).toISOString() : null,
+  }
 }
 
 async function fetchedAt(root: string): Promise<string | null> {

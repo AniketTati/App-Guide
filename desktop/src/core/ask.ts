@@ -38,7 +38,7 @@ async function prepare(root: string, input: AskInput, cacheDir: string): Promise
   const view: DraftView = {
     id: draft.id, suggestedId, file, branch,
     text: file === null ? entry.trimEnd() : block,
-    brief: brief(draft, entry, file, date, picked, product.base),
+    brief: brief(draft, entry, file, date, picked, product.base, branch),
     problem,
     cantAdd: file === null ? 'There is no tracker to add it to.' : await cantAdd(root, file, branch),
     hash: digest(`${file}\u0000${digest(tracker)}\u0000${block}`),
@@ -153,10 +153,15 @@ function routePick(r: RouteRow): Picked {
 
 /** The task goes into the tracker before any code: whoever works it, the
  *  record is on the branch with the work. */
-function brief(d: TaskDraft, entry: string, file: string | null, date: string, picked: readonly Picked[], base: string): string {
+function brief(d: TaskDraft, entry: string, file: string | null, date: string, picked: readonly Picked[], base: string, checkout: string | null): string {
+  const main = base.replace(/^origin\//, '')
+  // Where the work goes, said out loud: a branch of its own from main — never
+  // whatever the checkout happens to have out.
+  const where = `Do this on a new branch from ${main}, in a new worktree${checkout !== null && checkout !== main ? ` — not in the checkout, which is on ${checkout}` : ''}.`
   const lines = file === null
-    ? ['Here is a task. Add it to the project’s tracker first, in its own commit, then work it.', '', entry.trimEnd()]
+    ? [where, 'Here is a task. Add it to the project’s tracker first, in its own commit, then work it.', '', entry.trimEnd()]
     : [
+        where,
         `First make sure task ${d.id} below is in ${file}: if it isn't, add it under a section headed "## Asked for in App Guide (${date})", before the run log and summary, and commit that on its own. Then work it, following the cycle and ground rules at the top of ${file}, and name the task in each commit subject, like "(${d.id})".`,
         '',
         entry.trimEnd(),

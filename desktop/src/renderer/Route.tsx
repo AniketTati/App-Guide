@@ -21,6 +21,8 @@ export interface RouteLineProps {
   via?: string | null | undefined
   /** Buttons for the open row: "Public on purpose", "Make a task". */
   actions?: ReactNode
+  /** Show the plain words under the row without opening it. */
+  showDetail?: boolean | undefined
 }
 
 /**
@@ -48,6 +50,7 @@ export function RouteLine(p: RouteLineProps) {
         <span className={`rl-who ${none && p.publicOk !== true ? 'accent-text' : refused ? 'refused' : ''}`}>{who}</span>
         <Where where={p.where} />
       </button>
+      {p.showDetail === true && !open && p.detail !== undefined && p.detail !== '' && <p className="rl-note">{p.detail}</p>}
       {open && (
         <div className="rl-more">
           {p.detail !== undefined && p.detail !== '' && <Line label="">{p.detail}</Line>}
@@ -79,7 +82,7 @@ export function Path({ path }: { path: string }) {
 export function whoSummary(who: { role: string; scope: string | null }[] | null | undefined, roles: readonly string[], checks: string[] | 'unresolved' | undefined): string {
   if (who == null) {
     if (!Array.isArray(checks) || checks.length === 0) return ''
-    const first = checks[0] === 'in-handler check' ? 'checks in its own code' : checks[0]!.replace(/\(.*$/, '')
+    const first = words(checks[0]!)
     return `${first}${checks.length > 1 ? ` +${checks.length - 1}` : ''}`
   }
   if (who.length === 0) return 'no role has this permission'
@@ -89,4 +92,19 @@ export function whoSummary(who: { role: string; scope: string | null }[] | null 
   const missing = roles.filter((r) => !who.some((w) => w.role === r))
   if (roles.length > 0 && missing.length <= 2) return `all but ${missing.join(', ')}${ownNote}`
   return `${who.slice(0, 2).map((w) => w.role).join(', ')}${who.length > 2 ? ` +${who.length - 2}` : ''}${ownNote}`
+}
+
+/**
+ * A check's name, said in words where the name says plainly what it is —
+ * `requireUserOrAdminKey` is "anyone signed in, or an admin key". Open the
+ * route to see it as the code writes it.
+ */
+function words(check: string): string {
+  if (check === 'in-handler check') return 'checks in its own code'
+  const name = check.replace(/\(.*$/, '')
+  const key = /Or(Admin)?(Api)?Key$/i.exec(name)
+  if (/^(require|ensure|must)(User|Auth|Authenticated|Login|Session|SignedIn)/i.test(name) || /^(authenticate|isAuthenticated|verifyJwt|verifyToken)$/i.test(name)) {
+    return key === null ? 'anyone signed in' : `anyone signed in, or ${key[1] !== undefined ? 'an admin' : 'an API'} key`
+  }
+  return name
 }

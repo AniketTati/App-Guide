@@ -6,7 +6,7 @@ here and nowhere else. Every other document is a detail this one points at.
 If this file and another document disagree, **this file is right and the other
 one is a bug.** Fix it in the same commit that you noticed it.
 
-Last updated: 2026-09-26 (the PM app: three critiques of the built app fixed — facts first — and reinstalled; not yet used by the PM)
+Last updated: 2026-09-26 (the PM app: a second round of critique — the PM and a code review — fixed and reinstalled; not yet used by the PM)
 
 ---
 
@@ -22,7 +22,7 @@ in-session display below, then G3 and the Step 1 evidence test.
 | **Step 0** — verify competitors | ✅ **passed** | neither produces the inventory signals ([decisions.md](decisions.md) §15) |
 | **v0 — the receipt** | 🟡 **built, G1 measured and failing** | G1–G4 · steps in [notes/build-steps.md](notes/build-steps.md) |
 | v0.5 — GitHub Action + markdown | 🟡 written, never run in CI | in someone else's CI |
-| **PM app** — [notes/pm-app.md](notes/pm-app.md) | 🟡 **M1–M4 built, then critiqued by a PM persona, a designer and a code review, and fixed (decisions #116–#126): the tracker read in full, Checks that never give an all-clear over what they can't read, a verdict before merging, git reads that never lock; installed in `~/Applications`; not yet used by the PM** | the Use gate in its §6, four weeks after it is usable |
+| **PM app** — [notes/pm-app.md](notes/pm-app.md) | 🟡 **M1–M4 built, then critiqued twice — a PM persona, a designer and code reviews — and fixed (decisions #116–#136): the tracker and plans read in full, Checks that never give an all-clear over what they can't read, merge answers for uncommitted work, waiting tasks acted on where they are; installed in `~/Applications`; not yet used by the PM** | the Use gate in its §6, four weeks after it is usable |
 | v1 — MCP server | ⬜ not started | someone asks for it |
 | v2 — rules, frozen on first run | ⬜ not started | findings people act on |
 

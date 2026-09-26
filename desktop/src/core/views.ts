@@ -12,9 +12,12 @@ import type { BlindSpot, ChangeKind, ChangeView, CheckView, CommitView, ProductC
 /** Engine results into views, in the PM's words. No I/O here. */
 
 export function taskView(t: Task): TaskView {
+  // "Reported: taking an action didn't finalise it" — what to try by hand.
+  const tryIt = /^\s*[-*]\s+(?:\*\*)?(?:reported|steps to reproduce|to reproduce|repro|how to test|to test)(?::\*\*|\*\*:|:)\s*(.+)$/im.exec(t.text)?.[1]?.trim() ?? null
   return {
+    tryIt,
     id: t.id, title: t.title, status: t.status, file: t.file, line: t.line, fields: t.fields, criteria: t.criteria, worklog: t.worklog, text: t.text,
-    severity: t.severity, statusNote: t.statusNote, latest: t.latest,
+    severity: t.severity, statusNote: t.statusNote, latest: t.latest, remaining: t.remaining,
   }
 }
 
@@ -171,9 +174,12 @@ export function workView(w: Work, all: readonly Work[], tasks: ReadonlyMap<strin
     plan: w.plan,
     sharesWith,
     lastCommit: w.lastCommit,
+    lastEdit: w.lastEdit,
+    oldestEdit: w.oldestEdit,
     checkedAt: checked?.at ?? null,
     movedSinceCheck: moved,
-    ready: w.path !== null && w.ahead > 0 && w.uncommitted.length === 0 && !stale
+    // Finished only by its own account: it names tasks, and every one is done.
+    ready: w.path !== null && w.ahead > 0 && w.uncommitted.length === 0 && !stale && refs.length > 0
       && refs.every((r) => r.status !== null && FINISHED.has(r.status)) && (checked === undefined || moved),
     stale,
   }
@@ -194,11 +200,14 @@ export interface CheckInputs {
   /** The product where the work started, and as the work leaves it. */
   before: ProductBuild
   after: ProductBuild
-  /** Routes that were there before whose own code changed. */
-  touched: readonly Route[]
+  /** Routes that were there before whose own code changed, and the values
+   *  their code gained or lost. */
+  touched: readonly { route: Route; added: string[]; removed: string[] }[]
   schema: SchemaChange
   unseen: readonly Unseen[]
   verdict: CheckView['verdict']
+  plan: CheckView['plan']
+  running?: number | null
 }
 
 type Route = Extract<Fact, { kind: 'route' }>
@@ -217,10 +226,12 @@ export function checkView(i: CheckInputs): CheckView {
   const grouped = groupChanges([...c.report.top, ...c.report.also])
   const changes = { ...grouped, route: grouped.route.map(enrich) }
   const listed = new Set(changes.route.map((r) => r.title))
+  const quote = (vs: readonly string[]): string => vs.map((v) => `“${v}”`).join(', ')
   const touched = i.touched
-    .filter((r) => !listed.has(`${r.method} ${r.path}`))
-    .map((r) => enrich({
-      type: 'changed', kind: 'route', title: `${r.method} ${r.path}`, detail: 'its own code changed',
+    .filter(({ route: r }) => !listed.has(`${r.method} ${r.path}`))
+    .map(({ route: r, added, removed }) => enrich({
+      type: 'changed', kind: 'route', title: `${r.method} ${r.path}`,
+      detail: ['its own code changed', added.length > 0 ? `new in it: ${quote(added)}` : '', removed.length > 0 ? `gone from it: ${quote(removed)}` : ''].filter(Boolean).join(' · '),
       checks: r.middleware === 'unresolved' ? 'unresolved' : [...r.middleware], where: `${r.where.file}:${r.where.line}`,
     }))
   const screens = screensChanged(i.before, i.after, c.work.changed)
@@ -243,6 +254,7 @@ export function checkView(i: CheckInputs): CheckView {
     commits: c.commits.map(commitView),
     tasks: c.tasks.map(taskView),
     unknownTasks: c.unknownTasks,
+    plan: i.plan,
     screens,
     roleChanges: roleDiff,
     roles: roles?.tables[0]?.roles ?? [],
@@ -257,6 +269,7 @@ export function checkView(i: CheckInputs): CheckView {
     blind: blindSpots(c.facts.head),
     followUp: '',
     ship: '',
+    running: i.running ?? null,
   }
   view.sentence = sentenceOf(view)
   view.followUp = followUp(view)
@@ -289,10 +302,11 @@ export function screensChanged(before: ProductBuild, after: ProductBuild, change
   return out
 }
 
-/** What each role may do on each resource, where the two tables differ. */
+/** What each role may do on each resource, where the two tables differ —
+ *  the same table on both sides, found by its name. */
 export function roleChanges(before: RolesView | null, after: RolesView | null): CheckView['roleChanges'] {
-  const a = before?.tables[0] ?? null
   const b = after?.tables[0] ?? null
+  const a = before?.tables.find((t) => t.name === b?.name) ?? (b === null ? before?.tables[0] ?? null : null)
   if (a === null && b === null) return []
   const text = (t: typeof a, resource: string, role: string): string => grantText(t?.rows.find((r) => r.resource === resource)?.cells[role] ?? [])
   const resources = [...new Set([...(a?.rows ?? []), ...(b?.rows ?? [])].map((r) => r.resource))]
@@ -310,36 +324,50 @@ export function roleChanges(before: RolesView | null, after: RolesView | null): 
 
 /** "view, create", "edit (own only)", "everything". */
 export function grantText(cells: readonly { actions: string[]; scope: string | null }[]): string {
-  return cells.map((c) => `${c.actions.includes('*') ? 'everything' : c.actions.join(', ')}${c.scope !== null && c.scope !== 'org' ? ` (${c.scope} only)` : ''}`).join('; ')
+  // Sorted, so the same grants written in another order read the same.
+  return cells.map((c) => `${c.actions.includes('*') ? 'everything' : [...c.actions].sort().join(', ')}${c.scope !== null && c.scope !== 'org' ? ` (${c.scope} only)` : ''}`).sort().join('; ')
 }
 
 const count = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`
 
-/** The answer first — and never an all-clear over what couldn't be read. */
+/**
+ * The answer first — and never an all-clear over anything the page lists.
+ * Every kind of change the Check shows has its words here; "nothing" is said
+ * only when every list is empty.
+ */
 export function sentenceOf(v: CheckView): string {
   const r = v.changes.route
   const added = r.filter((x) => x.type === 'added')
   const open = added.filter((x) => Array.isArray(x.checks) && x.checks.length === 0).length
   const phrases: string[] = []
-  if (added.length > 0) phrases.push(`adds ${count(added.length, 'route')}${open > 0 ? ` (${open} with no check found)` : ''}`)
+  const say = (n: number, words: string): void => { if (n > 0) phrases.push(words) }
+  say(added.length, `adds ${count(added.length, 'route')}${open > 0 ? ` (${open} with no check found)` : ''}`)
   const removed = r.filter((x) => x.type === 'removed').length
-  if (removed > 0) phrases.push(`removes ${count(removed, 'route')}`)
+  say(removed, `removes ${count(removed, 'route')}`)
   const rechecked = r.filter((x) => x.type === 'changed').length
-  if (rechecked > 0) phrases.push(`changes the checks on ${count(rechecked, 'route')}`)
-  if (v.touched.length > 0) phrases.push(`changes the code behind ${count(v.touched.length, 'existing route')}`)
+  say(rechecked, `changes the checks on ${count(rechecked, 'route')}`)
+  say(v.touched.length, `changes the code behind ${count(v.touched.length, 'existing route')}`)
   const roles = new Set(v.roleChanges.map((c) => c.role)).size
-  if (roles > 0) phrases.push(`changes what ${count(roles, 'role')} may do`)
+  say(roles, `changes what ${count(roles, 'role')} may do`)
   const t = v.schema.tables
-  if (t.added.length > 0) phrases.push(`adds ${count(t.added.length, 'table')}`)
-  if (t.changed.length + t.removed.length > 0) phrases.push(`changes ${count(t.changed.length + t.removed.length, 'table')}`)
-  if (v.screens.added.length > 0) phrases.push(`adds ${count(v.screens.added.length, 'screen')}`)
+  say(t.added.length, `adds ${count(t.added.length, 'table')}`)
+  say(t.changed.length + t.removed.length, `changes ${count(t.changed.length + t.removed.length, 'table')}`)
+  const l = v.schema.lists
+  say(l.added.length + l.changed.length + l.removed.length, `changes ${count(l.added.length + l.changed.length + l.removed.length, 'list', 'lists')} of allowed values`)
+  say(v.schema.migrations.length, `adds ${count(v.schema.migrations.length, 'database migration')}`)
+  if (v.schema.settings) phrases.push('changes the database settings')
+  say(v.changes.data.length, `changes how it uses ${count(new Set(v.changes.data.map((d) => d.title)).size, 'kind')} of data`)
+  say(v.screens.added.length, `adds ${count(v.screens.added.length, 'screen')}`)
+  say(v.screens.removed.length, `removes ${count(v.screens.removed.length, 'screen')}`)
   const pages = v.screens.changed.filter((s) => s.how === 'page').length
-  if (pages > 0) phrases.push(`changes ${count(pages, 'screen')}`)
-  if (v.unmatched.added.length > 0) phrases.push(`calls ${count(v.unmatched.added.length, 'route')} that ${v.unmatched.added.length === 1 ? "doesn't" : "don't"} exist`)
+  const uses = v.screens.changed.length - pages
+  say(pages, `changes ${count(pages, 'screen')}`)
+  say(uses, `changes code ${pages > 0 ? `${count(uses, 'other screen')}` : count(uses, 'screen')} run`)
+  say(v.unmatched.added.length, `calls ${count(v.unmatched.added.length, 'route')} that ${v.unmatched.added.length === 1 ? "doesn't" : "don't"} exist`)
   const services = v.changes.service.filter((x) => x.type === 'added').length
-  if (services > 0) phrases.push(`starts calling ${count(services, 'outside service')}`)
-  const packages = v.changes.package.filter((x) => x.type === 'added').length
-  if (packages > 0) phrases.push(`adds ${count(packages, 'package')}`)
+  say(services, `starts calling ${count(services, 'outside service')}`)
+  const packages = v.changes.package.length
+  say(packages, `changes ${count(packages, 'package')}`)
   const cant = v.unseen.map((u) => `${u.label} (${count(u.files.length, 'file')})`)
   const cantText = cant.length === 0 ? '' : cant.length === 1 ? cant[0]! : `${cant.slice(0, -1).join(', ')} and ${cant[cant.length - 1]}`
   if (phrases.length > 0) {
@@ -347,8 +375,6 @@ export function sentenceOf(v: CheckView): string {
     return `It ${list}.${cantText === '' ? '' : ` It also changes ${cantText}, which I can’t read.`}`
   }
   if (cantText !== '') return `Nothing changed in the parts I can read — but it changes ${cantText}, which I can’t read. Ask Claude what those changes do before you merge.`
-  const uses = v.screens.changed.length
-  if (v.touched.length > 0 || uses > 0) return `No new routes, checks, data or packages. It changes the code behind ${[v.touched.length > 0 ? count(v.touched.length, 'existing route') : '', uses > 0 ? count(uses, 'screen') : ''].filter(Boolean).join(' and ')} — try ${uses === 1 ? 'it' : 'them'}, and read what its tasks say it did.`
   return 'No new routes, checks, data, packages or services. What changed inside existing code isn’t described here — read what its tasks say it did.'
 }
 

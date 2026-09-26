@@ -5,6 +5,7 @@ import { checkWork, home, type HomeResult, type ProjectState } from '../core/ser
 import { productOnMain } from '../core/product.js'
 import { draftTask } from '../core/ask.js'
 import { METHODS, type Project } from '../shared/api.js'
+import { askInput } from '../core/input.js'
 
 /**
  * Development only: the same calls over HTTP so every screen can be run and
@@ -28,10 +29,12 @@ const calls: Record<string, (...a: string[]) => Promise<unknown>> = {
   home: async () => { last = await home(project, state, cache); state.seenMain ??= last.baseHead; return last.view },
   check: async (_id, workId) => (await checkWork(project, workId!, state, cache)).view,
   product: async () => ({ ...(await productOnMain(project.path, cache)), publicOk: state.publicOk ?? [] }),
-  draftTask: async (_id, input) => draftTask(project.path, JSON.parse(input!) as never, cache),
+  draftTask: async (_id, input) => draftTask(project.path, askInput(input!), cache),
   // The development server never writes to a repository.
   addTask: async () => { throw new Error('the development server is read-only — add tasks from the app') },
   openClaude: async () => false,
+  // The development server opens nothing.
+  openScreen: async () => false,
   markSeen: async () => { if (last) state.seenMain = last.baseHead },
   markChecked: async (_id, workId) => { const w = last?.work.find((x) => x.id === workId); if (w) state.checked[workId!] = { at: new Date().toISOString(), head: w.head, dirty: w.dirty, fingerprint: w.fingerprint } },
   markPublic: async (_id, route, on) => { const list = new Set(state.publicOk ?? []); if (on === 'on') list.add(route!); else list.delete(route!); state.publicOk = [...list] },

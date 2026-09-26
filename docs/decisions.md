@@ -736,7 +736,7 @@ it is defensible.
      was opened, which had gone stale. On draft-legal: 147 of 147 entries
      read, and waiting on the PM is exactly the three tasks the tracker's own
      "What's left" names.
-118. **"Only your own" written in a handler is a check.** A 404 counts when the
+118. ~~**"Only your own" written in a handler is a check.**~~ **[SUPERSEDED BY #130]** A 404 counts when the
      `if` that decides it hands the caller to a lookup — `mayTouch(req, id)`,
      or the caller's own identity, never their organisation, which every
      lookup is scoped by. Two routes on a feature branch checked a role's
@@ -832,3 +832,72 @@ it is defensible.
      also reads by screen ("SALES_REP isn't allowed 2 of Dashboard's 6
      calls" — not called a fault, since a screen may hide those); and a call
      that reaches no route, or any route, can become a task in one click.
+127. **A second round: the PM again, and a code review of the fixes.** The PM
+     found four of their five asks met or mostly met, and three facts still
+     wrong: two tables counted as changed that had only gained links, a route
+     called changed for two moved comment lines, and "can't tell until both
+     are committed" where the files as they stood could be merged by hand. A
+     review of the new code confirmed thirteen bugs — the worst, that adding
+     a task from the installed app could never succeed. #128–#136 fix them.
+128. **Ask adds what was shown — through the same door the app uses.** The main
+     process checked Ask's input field by field and dropped the preview's
+     hash and the severity, so every add was refused and every severity lost;
+     the tests called the reader directly and never saw it. The check is now
+     one shared function the app and the development server both use, and
+     the test adds a task through it.
+129. **The headline names everything the page lists.** Data a change starts or
+     stops using, lists of allowed values, migrations in SQL or code, the
+     schema's connection settings, screens removed, and screens that only run
+     changed code all have words; "nothing changed" is said only when every
+     list is empty. A field whose type is another model is a link, not a
+     column: a table that only gains one hasn't changed — two, not four, on
+     the branch the PM counted by hand. Lockfiles are versions, not settings.
+130. **"Only your own" in a handler counts only if its lookup knows who is
+     calling.** Supersedes #118. A 404 counts when the `if` deciding it hands
+     a lookup the caller's own identity, or hands it the request and that
+     lookup — followed up to two calls deep — reads the identity from it.
+     A lookup handed the request that only reads its address is not a check:
+     counting it hid an open route from "no check found". Draft-legal's
+     counts are unchanged (49 on main), and the branch's ownership checks are
+     still found through the shared guard they call.
+131. **A route's own code is its registration and the handler it names.**
+     Lines between two routes used to belong to the one above, so a comment
+     moved above the next route, or a handler defined further down, blamed
+     the wrong one. A change now counts for a route when it touches the call
+     that registers it or the handler it names, wherever the file defines it,
+     and comment-only changes count for none. What the code gained is said:
+     "its own code changed · new in it: “rejected”".
+132. **Uncommitted work gets a merge answer too.** Where either side isn't
+     committed, each file both changed is merged with `git merge-file` on
+     scratch copies — as the files are now, and said so. It found that two
+     worktrees in flight would conflict in four files. `merge-tree` output is
+     read strictly: an exit that isn't a conflict is "can't tell", never
+     "conflicts in nothing", and a repository path with a colon is quoted
+     for git. (A hand-run check of merge-tree support, not the app, wrote a
+     few more unreferenced objects to draft-legal's store; git's clean-up
+     removes them.)
+133. **A task waiting on the PM is acted on where it is.** A VERIFY-PENDING
+     task shows its remaining check as the entry writes it, and "It works" /
+     "It doesn't" copy a brief that records what the PM saw in that entry and
+     moves its status. A BLOCKED one shows its choice as written and "Record
+     my decision" does the same. Neither drafts a new task.
+134. **A plan is read the way the tracker is.** A register kept as a table —
+     IDs, a status column — is a list of tasks; a releases table gives each
+     release's items and what "done" means. The Check shows each release's
+     progress and "done when", and the plan's notes on going live beside the
+     migrations to run. On a real plan every release's count matched the
+     PM's hand count but one — where a pipe inside a cell had split their row.
+135. **Whether work is alive, and a verdict that doesn't overclaim.** Work
+     shows whether Claude is editing now or when it last did, and warns — with
+     a brief to commit — when hours of edits sit uncommitted. "Ready" needs the
+     work to name its tasks; "pushed" means the branch is on GitHub under its
+     own name; Home forgets where the PM was only if that commit is really
+     gone; a reader restarted for taking too long doesn't fail the request
+     after it; only products the PM added have state; a broken state file is
+     kept aside even when its backup is read; and Home reads the forty newest
+     branches from the last four months, not hundreds.
+136. **Try it where it runs; brief Claude where it should work.** Screens to
+     try open in that work's own running copy of the app — a server on this
+     Mac, found with `lsof`, whose folder is that work's web app — and the
+     task's own "Reported" line says what to try. Every brief says to work on
+     a new branch from main, never the checkout's current one.

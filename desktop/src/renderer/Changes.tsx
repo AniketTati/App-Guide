@@ -7,12 +7,12 @@ import { Some, Where } from './ui.js'
  * everywhere else; anything else is what changed, then its plain words, then
  * where.
  */
-export function ChangeList({ changes, limit, roles = [] }: { changes: readonly ChangeView[]; limit?: number; roles?: readonly string[] }) {
+export function ChangeList({ changes, limit, roles = [], showDetail }: { changes: readonly ChangeView[]; limit?: number; roles?: readonly string[]; showDetail?: boolean }) {
   return (
     <div className="changes">
       <Some items={changes} limit={limit ?? changes.length} render={(c, i) => c.kind === 'route'
         ? <RouteLine key={`${c.title}:${i}`} type={c.type} method={c.title.split(' ')[0]!} path={c.title.slice(c.title.indexOf(' ') + 1)}
-            checks={c.checks} who={c.type === 'removed' ? undefined : c.who} roles={roles} data={c.data} where={c.where} detail={c.detail} />
+            checks={c.checks} who={c.type === 'removed' ? undefined : c.who} roles={roles} data={c.data} where={c.where} detail={c.detail} showDetail={showDetail} />
         : <ChangeRow key={`${c.kind}:${c.title}:${i}`} change={c} />} />
     </div>
   )

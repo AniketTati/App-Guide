@@ -3,10 +3,11 @@ import { existsSync, readFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { copyFile, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 import { gitBinary, git } from '../../../src/git/repo.js'
 import { METHODS, type Api, type AskInput, type CheckView, type DraftView, type HomeView, type Method, type ProductView, type Project } from '../shared/api.js'
 import type { HomeResult, ProjectState } from '../core/service.js'
+import { askInput } from '../core/input.js'
 
 /**
  * The app's own process: its window, what it remembers, and the queue of
@@ -14,30 +15,29 @@ import type { HomeResult, ProjectState } from '../core/service.js'
  */
 
 interface State { projects: Project[]; projectState: Record<string, ProjectState> }
-let state: State = { projects: [], projectState: {} }
+let state: State = { projects: [], projectState: Object.create(null) as Record<string, ProjectState> }
 const statePath = (): string => join(app.getPath('userData'), 'state.json')
-/** Set when state.json existed but couldn't be read: nothing is saved over it. */
-let unreadable = false
-
 async function loadState(): Promise<void> {
+  let broken = false
   for (const path of [statePath(), `${statePath()}.bak`]) {
     let text: string
     try { text = await readFile(path, 'utf8') } catch { continue }
     try {
       const loaded = JSON.parse(text) as Partial<State>
-      state = { projects: loaded.projects ?? [], projectState: loaded.projectState ?? {} }
-      unreadable = false
+      state = { projects: loaded.projects ?? [], projectState: Object.assign(Object.create(null) as Record<string, ProjectState>, loaded.projectState ?? {}) }
+      // A broken state.json read past to its backup is kept aside, so the
+      // next save — which copies state.json over the backup — can't lose it.
+      if (broken) await rename(statePath(), `${statePath()}.unreadable-${Date.now()}`).catch(() => undefined)
       return
     } catch {
-      unreadable = true
+      if (path === statePath()) broken = true
     }
   }
-  if (unreadable) {
+  if (broken) {
     // Keep the broken file for whoever looks, and start from nothing — never
     // save an empty state over what might still be recovered.
     const kept = `${statePath()}.unreadable-${Date.now()}`
     await rename(statePath(), kept).catch(() => undefined)
-    unreadable = false
     await dialog.showMessageBox({ type: 'warning', message: 'App Guide couldn’t read what it remembered', detail: `Your products and checks will need adding again. The unreadable file was kept as ${basename(kept)}.` })
   }
 }
@@ -64,7 +64,12 @@ const find = (id: string): Project => {
   if (p === undefined) throw new Error('no such product')
   return p
 }
-const stateOf = (id: string): ProjectState => (state.projectState[id] ??= { checked: {} })
+// Only a product the PM added has state: an id is looked up, never trusted.
+const stateOf = (id: string): ProjectState => {
+  find(id)
+  if (!Object.hasOwn(state.projectState, id)) state.projectState[id] = { checked: {} }
+  return state.projectState[id]!
+}
 // Not "cache": Chromium keeps its own "Cache" in the same folder, and a Mac's
 // file names ignore case, so the two would be one folder it may empty. One
 // folder per build of the reader: facts an older build read are never
@@ -99,6 +104,9 @@ function reader(): UtilityProcess {
     else p.reject(new Error(msg.error ?? 'the reader failed'))
   })
   w.on('exit', () => {
+    // A reader stopped for taking too long was already forgotten: requests
+    // made since belong to its replacement, and must not be failed with it.
+    if (worker !== w) return
     worker = null
     for (const p of waiting.values()) p.reject(new Error('the reader stopped'))
     waiting.clear()
@@ -120,7 +128,13 @@ function ask<T>(req: Record<string, unknown>): Promise<T> {
       if (!waiting.has(id)) return
       waiting.delete(id)
       reject(new Error('Reading took too long and was stopped. Try again — if it keeps happening, the repository may be very large or a file may be unreachable.'))
-      worker?.kill()
+      // Forget it first, so the next request starts a fresh reader; anything
+      // else it was holding fails now rather than hanging.
+      const stuck = worker
+      worker = null
+      for (const p of waiting.values()) p.reject(new Error('the reader was restarted'))
+      waiting.clear()
+      stuck?.kill()
     }, READ_LIMIT)
     waiting.set(id, { resolve: (v) => { clearTimeout(timer); resolve(v as T) }, reject: (e) => { clearTimeout(timer); reject(e) } })
     reader().postMessage({ id, ...req })
@@ -132,7 +146,7 @@ function ask<T>(req: Record<string, unknown>): Promise<T> {
 
 // ── What the page may ask for ─────────────────────────────────────────────────
 const lastHome = new Map<string, HomeResult>()
-const lastCheck = new Map<string, { head: string; dirty: number; fingerprint: string }>()
+const lastCheck = new Map<string, { head: string; dirty: number; fingerprint: string; running: number | null }>()
 
 const handlers: { [M in Method]: (...args: string[]) => ReturnType<Api[M]> } = {
   async projects() { return state.projects },
@@ -185,7 +199,7 @@ const handlers: { [M in Method]: (...args: string[]) => ReturnType<Api[M]> } = {
   async check(id, workId): Promise<CheckView> {
     const project = find(id)
     const r = await ask<{ view: CheckView; fingerprint: string; head: string }>({ method: 'check', project, workId, state: stateOf(id), cacheDir: cacheDir(id) })
-    lastCheck.set(`${id}\u0000${workId}`, { head: r.head, dirty: r.view.work.uncommitted, fingerprint: r.fingerprint })
+    lastCheck.set(`${id}\u0000${workId}`, { head: r.head, dirty: r.view.work.uncommitted, fingerprint: r.fingerprint, running: r.view.running })
     return r.view
   },
 
@@ -226,6 +240,18 @@ const handlers: { [M in Method]: (...args: string[]) => ReturnType<Api[M]> } = {
     return ask<{ id: string; file: string; line: number }>({ method: 'addTask', project: find(id), input: askInput(input), cacheDir: cacheDir(id) })
   },
 
+  async openScreen(id, workId, path) {
+    // Only a port this app found that work's own web app listening on, only
+    // on this Mac, only a plain path; a screen's :parameters are left off, so
+    // it opens on the list it comes from.
+    const port = lastCheck.get(`${id}\u0000${workId}`)?.running
+    if (port == null) return false
+    const clean = path.split('/').filter((seg) => seg !== '' && !seg.startsWith(':')).join('/')
+    if (!/^[A-Za-z0-9\-._~/]*$/.test(clean)) return false
+    await shell.openExternal(`http://localhost:${port}/${clean}`)
+    return true
+  },
+
   async openClaude() {
     for (const path of ['/Applications/Claude.app', join(app.getPath('home'), 'Applications', 'Claude.app')]) {
       if (existsSync(path)) return (await shell.openPath(path)) === ''
@@ -234,32 +260,18 @@ const handlers: { [M in Method]: (...args: string[]) => ReturnType<Api[M]> } = {
   },
 }
 
-/** What "Ask for a change" sends, checked field by field: only text, only
- *  within bounds, never anything that names a file or a command. */
-function askInput(json: string): AskInput {
-  const raw = JSON.parse(json) as Record<string, unknown>
-  const text = (v: unknown, max: number): string => (typeof v === 'string' ? v.slice(0, max) : '')
-  const picks = Array.isArray(raw['picks']) ? raw['picks'].slice(0, 40).flatMap((p) => {
-    const o = p as Record<string, unknown>
-    return (o['kind'] === 'screen' || o['kind'] === 'route') && typeof o['key'] === 'string' ? [{ kind: o['kind'] as 'screen' | 'route', key: o['key'].slice(0, 300) }] : []
-  }) : []
-  return {
-    what: text(raw['what'], 4000),
-    why: text(raw['why'], 4000),
-    criteria: Array.isArray(raw['criteria']) ? raw['criteria'].slice(0, 20).map((c) => text(c, 1000)) : [],
-    picks,
-    ...(typeof raw['id'] === 'string' ? { id: raw['id'].slice(0, 8) } : {}),
-  }
-}
-
 /** Only our own page may call — its exact file, or the development server
  *  when not packaged — only listed methods, and only with strings: ids and
  *  text, never objects that could carry a path or a command. */
-const PAGE = pathToFileURL(join(__dirname, 'renderer', 'index.html')).href
+const PAGE = join(__dirname, 'renderer', 'index.html')
 function allowed(event: IpcMainInvokeEvent): boolean {
   const url = (event.senderFrame?.url ?? '').replace(/[?#].*$/, '')
+  if (url.startsWith('file:')) {
+    // Compared as paths: a URL spells some characters of the path two ways.
+    try { return fileURLToPath(url) === PAGE } catch { return false }
+  }
   const dev = process.env['APPGUIDE_DEV_URL']
-  return url === PAGE || (!app.isPackaged && dev !== undefined && /^http:\/\/(127\.0\.0\.1|localhost):\d+\/?$/.test(dev) && url.startsWith(dev))
+  return !app.isPackaged && dev !== undefined && /^http:\/\/(127\.0\.0\.1|localhost):\d+\/?$/.test(dev) && url.startsWith(dev)
 }
 
 ipcMain.handle('api', async (event, method: unknown, args: unknown) => {
@@ -289,13 +301,13 @@ async function pollAll(): Promise<void> {
     lastPoll.set(project.id, { baseHead: r.baseHead, work: now })
     if (before === undefined) continue // the first poll is the baseline
     const news: string[] = []
-    const moved: string[] = []
+    const moved: [string, string][] = []
     for (const [id, w] of now) {
       const was = before.work.get(id)
       const name = w.branch ?? basename(id)
       if (was === undefined) news.push(`New work in flight: ${name}`)
       else if (w.head !== was.head && w.ahead > was.ahead) news.push(`${name}: ${w.ahead - was.ahead} new commit${w.ahead - was.ahead === 1 ? '' : 's'}`)
-      if (was !== undefined && was.fingerprint !== w.fingerprint) moved.push(id)
+      if (was !== undefined && was.fingerprint !== w.fingerprint) moved.push([id, w.fingerprint])
     }
     if (r.baseHead !== before.baseHead) news.push('Main moved — see what changed')
     if (news.length > 0) {

@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import type { ChangeKind, CheckView, MergeView } from '../shared/api.js'
-import { api, onChanged } from './bridge.js'
+import { api, inApp, onChanged } from './bridge.js'
 import { ago, clock, plural } from './format.js'
 import { Button, Empty, FileList, Problem, Section, Severity, Some, Spinner, Status } from './ui.js'
 import { ChangeList } from './Changes.js'
 import { TaskBody } from './Home.js'
-import { Md } from './Md.js'
+import { Md, MdBlock } from './Md.js'
 
 const KINDS: { kind: Exclude<ChangeKind, 'route'>; title: string }[] = [
   { kind: 'data', title: 'Data it reads and changes' },
@@ -27,11 +27,17 @@ export function CheckScreen({ projectId, workId, onBack, onAsk }: {
     setView(null)
     setError(null)
     setMoved(false)
+    setMarked(false)
     void api.check(projectId, workId).then(setView).catch((e: Error) => setError(e.message))
   }, [projectId, workId])
   useEffect(load, [load])
-  // Claude may still be working on it: say so, rather than let the page go stale.
-  useEffect(() => onChanged((id, works) => { if (id === projectId && works.includes(workId)) setMoved(true) }), [projectId, workId])
+  // Claude may still be working on it: say so when what's there now isn't
+  // what this page read, rather than let it go stale.
+  const shown = view?.fingerprint
+  useEffect(() => onChanged((id, moved) => {
+    const now = moved.find(([w]) => w === workId)?.[1]
+    if (id === projectId && now !== undefined && shown !== undefined && now !== shown) setMoved(true)
+  }), [projectId, workId, shown])
 
   const copy = (text: string, said: string): void => { void api.copy(text).then(() => { setDone(said); setTimeout(() => setDone(null), 4000) }) }
 
@@ -40,7 +46,7 @@ export function CheckScreen({ projectId, workId, onBack, onAsk }: {
 
   const w = view.work
   const product = view.changes.route.length + view.touched.length + view.changes.data.length + view.changes.service.length + view.changes.package.length
-  const db = view.schema.tables.added.length + view.schema.tables.changed.length + view.schema.tables.removed.length + view.schema.lists.added.length + view.schema.lists.changed.length + view.schema.lists.removed.length + view.schema.migrations.length
+  const db = view.schema.tables.added.length + view.schema.tables.changed.length + view.schema.tables.removed.length + view.schema.lists.added.length + view.schema.lists.changed.length + view.schema.lists.removed.length + view.schema.migrations.length + (view.schema.settings ? 1 : 0)
   const noticed = view.screens.changed.length + view.screens.added.length + view.screens.removed.length + view.roleChanges.length + view.unmatched.added.length + view.unmatched.fixed.length
   return (
     <div className="page">
@@ -62,8 +68,10 @@ export function CheckScreen({ projectId, workId, onBack, onAsk }: {
 
       <div className="verdict">
         <Verdict label="Done when">
-          {view.tasks.length === 0 ? (w.plan !== null
-              ? <span className="needs">No tracker task yet — it’s working from its plan, <span className="code">{w.plan.file}</span>. Ask Claude to write the tasks and what “done” means before it goes further.</span>
+          {view.plan != null && view.plan.releases.length > 0 ? (
+            <span>Its plan says what “done” means for each release. {view.plan.releases.map((r) => `${r.short} ${r.done} of ${r.total}`).join(' · ')} — below.</span>
+          ) : view.tasks.length === 0 ? (w.plan !== null
+              ? <span className="needs">No tracker task yet — it’s working from its plan, <span className="code">{w.plan.file}</span>, which doesn’t say when it’s done. Ask Claude to.</span>
               : <span className="needs">It doesn’t name a task, so there’s nothing to check it against.</span>)
             : view.verdict.criteria === 0 ? <span className="needs">{view.tasks.map((t) => t.id).join(', ')} {view.tasks.length === 1 ? 'has' : 'have'} no acceptance criteria written — ask Claude what “done” means here before you merge.</span>
             : <span>{plural(view.verdict.criteria, 'criterion', 'criteria')} written, under its tasks below. This screen can’t tell you whether they’re met — only what changed.</span>}
@@ -81,6 +89,14 @@ export function CheckScreen({ projectId, workId, onBack, onAsk }: {
             : <span>On GitHub{view.verdict.pushed.upstream !== null ? ` as ${view.verdict.pushed.upstream}` : ''}.</span>}
         </Verdict>
         <Verdict label="Tests">{view.tests.length === 0 ? <span className="dim">It changes no test files.</span> : <span>It changes {plural(view.tests.length, 'test file')}.</span>}</Verdict>
+        {(view.plan?.golive != null || view.schema.migrations.length > 0) && (
+          <Verdict label="Before it goes live">
+            {view.schema.migrations.length > 0 && <div>{view.schema.migrations.length === 1 ? 'A database migration' : `${view.schema.migrations.length} database migrations`} to run.</div>}
+            {view.plan?.golive != null && (
+              <details className="claude"><summary>What its plan says about going live</summary><MdBlock text={view.plan.golive} /></details>
+            )}
+          </Verdict>
+        )}
       </div>
 
       <Section title="What people will notice" count={noticed || undefined}>
@@ -89,10 +105,17 @@ export function CheckScreen({ projectId, workId, onBack, onAsk }: {
             {view.screens.added.length > 0 && <Group title="New screens">{view.screens.added.map((s) => <div key={s.path} className="file"><span>{s.name}</span><span className="code dim">{s.path}</span></div>)}</Group>}
             {view.screens.removed.length > 0 && <Group title="Screens it removes">{view.screens.removed.map((s) => <div key={s.path} className="file"><span>{s.name}</span><span className="code dim">{s.path}</span></div>)}</Group>}
             {view.screens.changed.length > 0 && (
-              <Group title="Screens to try" note="Their own page changed, or code they run did.">
+              <Group title="Screens to try" note={view.running !== null ? `Their own page changed, or code they run did. This work’s copy of the app is running on localhost:${view.running} — open them there.` : 'Their own page changed, or code they run did. Start this work’s copy of the app to open them from here.'}>
+                {view.tasks.filter((t) => t.tryIt != null).map((t) => <p key={t.id} className="note"><span className="label">What to try, from {t.id}:</span> <Md text={t.tryIt!} /></p>)}
                 <div className="files">
                   <Some items={view.screens.changed} limit={8} render={(s) => (
-                    <div key={s.path} className="file"><span>{s.name} <span className="dim">{s.how === 'page' ? '— its page' : '— code it runs'}</span></span><span className="code dim">{s.path}</span></div>
+                    <div key={s.path} className="file">
+                      <span>{s.name} <span className="dim">{s.how === 'page' ? '— its page' : '— code it runs'}</span></span>
+                      <span>
+                        {view.running !== null && inApp() && <button type="button" className="link" onClick={() => { void api.openScreen(projectId, workId, s.path) }} title={`Opens localhost:${view.running} in your browser — this work’s own copy of the app`}>Open{s.path.includes('/:') ? ' its list' : ''}</button>}
+                        {' '}<span className="code dim">{s.path}</span>
+                      </span>
+                    </div>
                   )} />
                 </div>
               </Group>
@@ -121,12 +144,11 @@ export function CheckScreen({ projectId, workId, onBack, onAsk }: {
         {product + db === 0 ? <Empty>No routes, checks, data, services or packages changed.</Empty> : (
           <>
             {view.changes.route.length > 0 && <Group title="Routes"><ChangeList changes={view.changes.route} roles={view.roles} limit={25} /></Group>}
-            {view.touched.length > 0 && <Group title="Routes whose own code changed" note="They were there before; what they do inside may be different now."><ChangeList changes={view.touched} roles={view.roles} limit={12} /></Group>}
+            {view.touched.length > 0 && <Group title="Routes whose own code changed" note="They were there before; what they do inside may be different now. Values new in their code are shown under each."><ChangeList changes={view.touched} roles={view.roles} limit={12} showDetail /></Group>}
             {db > 0 && <Database schema={view.schema} />}
             {KINDS.filter((k) => view.changes[k.kind].length > 0).map((k) => <Group key={k.kind} title={k.title}><ChangeList changes={view.changes[k.kind]} limit={12} /></Group>)}
           </>
         )}
-        {view.changes.code.length > 0 && <p className="note">It also adds or removes {plural(view.changes.code.length, 'piece')} of code other parts can use.</p>}
       </Section>
 
       {view.unseen.length > 0 && (
@@ -135,9 +157,25 @@ export function CheckScreen({ projectId, workId, onBack, onAsk }: {
         </Section>
       )}
 
+      {view.plan != null && (
+        <Section title="Its plan" count={view.plan.total || undefined} note={<><span className="code">{view.plan.file}</span> — “{view.plan.title}”. {view.plan.total > 0 ? `${view.plan.done} of ${view.plan.total} done${view.plan.partly > 0 ? `, ${view.plan.partly} partly` : ''}.` : ''}</>}>
+          {view.plan.releases.length > 0 && (
+            <table className="table">
+              <thead><tr><th>Release</th><th>Done</th><th>Done when</th></tr></thead>
+              <tbody>{view.plan.releases.map((r) => <tr key={r.name}><td>{r.name}</td><td className={r.done === r.total ? '' : 'from'}>{r.done} of {r.total}</td><td>{r.doneWhen}</td></tr>)}</tbody>
+            </table>
+          )}
+          {view.plan.open.length > 0 && (
+            <details className="claude"><summary>Not done yet — {view.plan.open.length}</summary>
+              <div className="files">{view.plan.open.map((i) => <div key={i.id} className="file"><span><span className="code dim">{i.id}</span> {i.title}</span><span className="dim">{i.status ?? ''}</span></div>)}</div>
+            </details>
+          )}
+        </Section>
+      )}
+
       <Section title="Its tasks" count={view.tasks.length} note={view.tasks.length > 0 ? 'As its own copy of the tracker has them.' : undefined}>
         {view.tasks.length === 0
-          ? <Empty>{w.plan !== null ? <>No tracker task yet. It’s working from <span className="code">{w.plan.file}</span> — “{w.plan.title}”.</> : w.ahead === 0 ? 'Nothing is committed yet and it hasn’t edited a tracker entry, so no task is named.' : 'Its commits don’t name a task.'}</Empty>
+          ? <Empty>{w.plan !== null ? 'No tracker task yet — it works from its plan, above.' : w.ahead === 0 ? 'Nothing is committed yet and it hasn’t edited a tracker entry, so no task is named.' : 'Its commits don’t name a task.'}</Empty>
           : view.tasks.map((t) => (
             <div key={t.id} className="row row-task">
               <div className="row-main"><span className="task-id">{t.id}</span><span className="row-title"><Md text={t.title} /></span><Severity value={t.severity} /><Status status={t.status} note={t.statusNote} /></div>
@@ -164,21 +202,28 @@ export function CheckScreen({ projectId, workId, onBack, onAsk }: {
       )}
 
       <div className="footer-bar">
-        <p className="footer-note">{done ?? (marked ? 'Checked. It shows as checked until it changes. When you’re happy, copy “push and open a PR” for Claude.' : 'Only what changed is shown here — not whether it works.')}</p>
-        <Button onClick={() => setNotes(notes === null ? '' : null)}>Send back with notes…</Button>
-        <Button onClick={() => copy(view.followUp, 'Copied the questions. Paste them into the Claude session doing this work.')}>Copy questions for Claude</Button>
-        <Button onClick={() => copy(view.ship, 'Copied. Paste it into the Claude session doing this work.')}>Ready — copy “push and open a PR”</Button>
-        <Button primary disabled={marked} onClick={() => { void api.markChecked(projectId, workId).then(() => setMarked(true)) }}>{marked ? 'Checked' : 'Mark checked'}</Button>
+        <p className="footer-note">{done ?? (marked ? 'Noted. Home shows it as looked at until it changes. When you’re happy, copy the next step for Claude.' : 'Only what changed is shown here — not whether it works.')}</p>
+        <Button onClick={() => setNotes(notes === null ? '' : null)}>Send back…</Button>
+        <Button onClick={() => copy(view.followUp, `Copied the questions. Paste them into ${session(w)}.`)}>Copy questions</Button>
+        <Button onClick={() => copy(view.ship, `Copied. Paste it into ${session(w)} — it pushes the work and opens a pull request.`)}>Ready — copy next step</Button>
+        <Button primary disabled={marked} onClick={() => { void api.markChecked(projectId, workId).then(() => setMarked(true)) }} title="Records that you've looked at it as it is now. If it changes, Home says so.">{marked ? 'Marked as looked at' : 'I’ve looked at it'}</Button>
         {notes !== null && (
           <div className="notes">
             <textarea autoFocus value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. Reject should ask for a reason. Don’t change the export format." />
-            <Button disabled={notes.trim() === ''} onClick={() => { copy(sendBack(view, notes), 'Copied your notes. Paste them into the Claude session doing this work.'); setNotes(null) }}>Copy for Claude</Button>
+            <Button disabled={notes.trim() === ''} onClick={() => { copy(sendBack(view, notes), `Copied your notes. Paste them into ${session(w)}.`); setNotes(null) }}>Copy for Claude</Button>
             <Button onClick={() => { onAsk(`Follow-up to ${w.label}`, notes); setNotes(null) }}>Make it a task…</Button>
           </div>
         )}
       </div>
     </div>
   )
+}
+
+/** Which Claude session a brief belongs in, in words the PM can find it by. */
+function session(w: CheckView['work']): string {
+  if (w.where === 'worktree') return `the Claude session working in ${w.name}`
+  if (w.where === 'checkout') return `the Claude session working in your checkout${w.branch !== null ? ` (on ${w.branch})` : ''}`
+  return `a new Claude session, on ${w.name}`
 }
 
 function sendBack(v: CheckView, notes: string): string {
@@ -197,8 +242,9 @@ function Verdict({ label, children }: { label: string; children: ReactNode }) {
 }
 
 function Merge({ m, into, short }: { m: MergeView; into: string; short?: boolean }) {
-  if (m.state === 'clean') return <span>{short ? 'merges cleanly' : `Merges cleanly into ${into} as it is now.`}</span>
-  if (m.state === 'conflicts') return <span className="needs">{short ? 'conflicts' : `Conflicts with ${into}`} in {m.files.slice(0, 4).join(', ')}{m.files.length > 4 ? ` and ${m.files.length - 4} more` : ''}.</span>
+  const now = m.state !== 'uncommitted' && m.state !== 'unknown' && m.asOfNow === true ? ' — as the files are now, not all committed' : ''
+  if (m.state === 'clean') return <span>{short ? `merges cleanly${now}` : `Merges cleanly into ${into}${now === '' ? ' as it is now' : now}.`}</span>
+  if (m.state === 'conflicts') return <span className="needs">{short ? 'would conflict' : `Would conflict with ${into}`} in {m.files.slice(0, 4).map((f) => f.slice(f.lastIndexOf('/') + 1)).join(', ')}{m.files.length > 4 ? ` and ${m.files.length - 4} more` : ''}{now}.</span>
   if (m.state === 'uncommitted') return <span className="dim">{short ? 'can’t tell until both are committed' : 'Nothing is committed yet, so I can’t tell.'}</span>
   return <span className="dim">This version of git can’t tell.</span>
 }
@@ -219,6 +265,7 @@ function Database({ schema: s }: { schema: CheckView['schema'] }) {
         {line('Lists of values it changes', s.lists.changed)}
         {line('Lists it removes', s.lists.removed)}
         {line(s.migrations.length === 1 ? 'A migration' : `${s.migrations.length} migrations`, s.migrations)}
+        {s.settings && <div className="file"><span>Its connection or generator settings</span><span className="dim">changed</span></div>}
       </div>
     </Group>
   )

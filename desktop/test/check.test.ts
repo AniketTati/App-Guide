@@ -60,7 +60,7 @@ beforeAll(async () => {
 
 describe('a Check of work the route reader alone would call nothing', () => {
   it('says what each role may now do, from the branch’s own table', () => {
-    expect(view.roleChanges).toEqual([{ role: 'FINANCE', resource: 'renewal', before: 'view', after: 'view, approve' }])
+    expect(view.roleChanges).toEqual([{ role: 'FINANCE', resource: 'renewal', before: 'view', after: 'approve, view' }])
     const route = view.touched.concat(view.changes.route).find((r) => r.title === 'POST /api/v1/renewals/:id/approve')
     expect(route).toBeUndefined() // the route itself didn't change…
   })
@@ -72,7 +72,7 @@ describe('a Check of work the route reader alone would call nothing', () => {
 
   it('lists what it can’t read, and gives no all-clear', () => {
     expect(view.unseen).toEqual([{ label: 'Python', files: ['apps/agents/approve.py'] }])
-    expect(view.sentence).toBe('It changes what 1 role may do, adds 1 table and changes 1 table. It also changes Python (1 file), which I can’t read.')
+    expect(view.sentence).toBe('It changes what 1 role may do, adds 1 table, changes 1 table and adds 1 database migration. It also changes Python (1 file), which I can’t read.')
   })
 
   it('knows its task and its criteria, and that it merges cleanly and is not pushed', () => {

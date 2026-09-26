@@ -12,7 +12,7 @@ describe('denominators', () => {
   it('flags an unauthenticated route when it is the exception', () => {
     const after = [route('/a'), route('/b'), route('/c'), route('/new', [])]
     const [d] = withDenominators(compare(after.slice(0, 3), after), after)
-    expect(d?.denominator).toEqual({ property: 'no middleware', matching: 1, total: 4, noun: 'routes' })
+    expect(d?.denominator).toEqual({ property: 'no check found', matching: 1, total: 4, noun: 'routes' })
   })
 
   it("says nothing when open routes are this codebase's norm", () => {
@@ -60,7 +60,7 @@ describe('open writes are never excused by an open codebase', () => {
     const before = [r('POST', '/register', []), r('POST', '/login', []), r('GET', '/products', []), r('GET', '/products/:id', []), r('PUT', '/products/:id', ['protect'])]
     const after = [...before, r('DELETE', '/admin/purge', [])]
     const [d] = withDenominators(compare(before, after), after)
-    expect(d?.denominator).toMatchObject({ property: 'no middleware', matching: 5, total: 6 })
+    expect(d?.denominator).toMatchObject({ property: 'no check found', matching: 5, total: 6 })
   })
 
   it('still stays quiet about a new open read in the same codebase', () => {

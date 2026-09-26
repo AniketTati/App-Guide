@@ -156,3 +156,118 @@ describe('what it cannot know, it says', () => {
     expect(routes(facts).map((r) => `${r.method} ${r.path}`).sort()).toEqual(['GET /shared', 'POST /v2/typed'])
   })
 })
+
+describe('what counts as a check', () => {
+  const app = (routes: string, extra: Record<string, string> = {}) => ({
+    'src/app.ts': `
+      import Fastify from 'fastify'
+      import { routes } from './routes.js'
+      const app = Fastify()
+      await app.register(routes, { prefix: '/api' })`,
+    'src/routes.ts': routes,
+    ...extra,
+  })
+
+  it('counts a hook only if its code can refuse the request', () => {
+    const facts = detect(app(`
+      import { requireAuth } from './auth.js'
+      import { track } from './telemetry.js'
+      import jwt from '@fastify/jwt'
+      export async function routes(app: FastifyInstance) {
+        // Records, never refuses: not a check.
+        app.addHook('preHandler', (req, _reply, done) => { if (req.url) track(done); else done() })
+        app.get('/a', async () => 1)
+        app.get('/b', { preHandler: requireAuth }, async () => 1)
+        app.get('/c', { preHandler: logOnly }, async () => 1)
+        app.get('/d', { preHandler: (req, reply, done) => done(new Error('no')) }, async () => 1)
+        app.get('/e', { preHandler: jwt.verify }, async () => 1)
+      }
+      function logOnly(req) { console.log(req.url) }`, {
+      'src/auth.ts': `export async function requireAuth(req, reply) { if (!req.user) return reply.status(401).send() }`,
+      'src/telemetry.ts': `export function track(next) { store.run([], next) }`,
+    }))
+    expect(find(facts, 'GET', '/api/a')?.middleware).toEqual([])
+    expect(find(facts, 'GET', '/api/b')?.middleware).toEqual(['requireAuth'])
+    expect(find(facts, 'GET', '/api/c')?.middleware).toEqual([])
+    expect(find(facts, 'GET', '/api/d')?.middleware).toEqual(['inline preHandler'])
+    // A check we cannot read into still counts — dropping it would claim
+    // "no check found" about code we never saw.
+    expect(find(facts, 'GET', '/api/e')?.middleware).toEqual(['jwt.verify'])
+  })
+
+  it('adds a guard an onRoute hook installs, to later routes whose URL matches', () => {
+    const facts = detect(app(`
+      import { guardOwnScopeContractRoutes, guardOwnScopeRoutes, ownScopeGuard } from './guard.js'
+      export async function routes(app: FastifyInstance) {
+        app.get('/early/:id', async () => 1)
+        guardOwnScopeContractRoutes(app)
+        app.get('/contracts', async () => 1)
+        app.get('/contracts/:id', async () => 1)
+        app.get('/reviews/:contractId', async () => 1)
+      }
+      export async function others(app: FastifyInstance) {
+        guardOwnScopeContractRoutes(app, /\\/:contractId(\\/|$)/, 'contractId')
+        app.get('/queue/:contractId', async () => 1)
+      }`, {
+      'src/app.ts': `
+        import Fastify from 'fastify'
+        import { routes, others } from './routes.js'
+        const app = Fastify()
+        await app.register(routes, { prefix: '/api' })
+        await app.register(others, { prefix: '/api' })`,
+      'src/guard.ts': `
+        export function ownScopeGuard(owns, detail, param = 'id') {
+          return async (req, reply) => { if (!(await owns(req))) return reply.status(404).send({ detail }) }
+        }
+        export function guardOwnScopeRoutes(app: FastifyInstance, urlPattern: RegExp, guard) {
+          app.addHook('onRoute', (route) => {
+            if (!urlPattern.test(route.url)) return
+            const existing = route.preHandler ? [route.preHandler] : []
+            route.preHandler = [...existing, guard]
+          })
+        }
+        export const ownScopeContractGuard = ownScopeGuard(ownsContract, 'Contract not found')
+        export function guardOwnScopeContractRoutes(app: FastifyInstance, urlPattern = /\\/:id(\\/|$)/, param = 'id') {
+          guardOwnScopeRoutes(app, urlPattern, param === 'id' ? ownScopeContractGuard : ownScopeGuard(ownsContract, 'Contract not found', param))
+        }`,
+    }))
+    // onRoute fires as routes are registered: one registered before it is untouched.
+    expect(find(facts, 'GET', '/api/early/:id')?.middleware).toEqual([])
+    expect(find(facts, 'GET', '/api/contracts')?.middleware).toEqual([])
+    expect(find(facts, 'GET', '/api/contracts/:id')?.middleware).toEqual(["ownScopeGuard(ownsContract, 'Contract not found')"])
+    expect(find(facts, 'GET', '/api/reviews/:contractId')?.middleware).toEqual([])
+    expect(find(facts, 'GET', '/api/queue/:contractId')?.middleware).toEqual(["ownScopeGuard(ownsContract, 'Contract not found', param)"])
+  })
+
+  it('names a 401 or 403 written inside the handler, and not a 404', () => {
+    const facts = detect(app(`
+      export async function routes(app: FastifyInstance) {
+        app.post('/chunk', async (req, reply) => {
+          if (req.headers['x-internal-secret'] !== process.env.SECRET) return reply.status(401).send()
+          return { ok: true }
+        })
+        app.get('/thing/:id', async (req, reply) => {
+          const row = await find(req.params.id)
+          if (!row) return reply.status(404).send()
+          return row
+        })
+        app.post('/hook', { preHandler: requireUser, handler: async (req, reply) => reply.code(403).send() })
+      }`))
+    expect(find(facts, 'POST', '/api/chunk')?.middleware).toEqual(['in-handler check'])
+    expect(find(facts, 'GET', '/api/thing/:id')?.middleware).toEqual([])
+    expect(find(facts, 'POST', '/api/hook')?.middleware).toEqual(['requireUser', 'in-handler check'])
+  })
+
+  it('reads a plugin registered at two prefixes at both', () => {
+    const facts = detect({
+      'src/app.ts': `
+        import Fastify from 'fastify'
+        import { v } from './v.js'
+        const app = Fastify()
+        await app.register(v, { prefix: '/v1' })
+        await app.register(v, { prefix: '/v2' })`,
+      'src/v.ts': `export async function v(app: FastifyInstance) { app.get('/x', async () => 1) }`,
+    })
+    expect(routes(facts).map((r) => r.path).sort()).toEqual(['/v1/x', '/v2/x'])
+  })
+})

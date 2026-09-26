@@ -15,7 +15,7 @@ const route = (method: string, path: string, mw: string[]): Fact =>
 /** Five findings: more than fit at a narrow width. */
 function fiveChanges() {
   const changes: Change[] = [
-    { type: 'added', fact: route('DELETE', '/api/admin/purge', []), denominator: { property: 'no middleware', matching: 4, total: 11, noun: 'routes' } },
+    { type: 'added', fact: route('DELETE', '/api/admin/purge', []), denominator: { property: 'no check found', matching: 4, total: 11, noun: 'routes' } },
     { type: 'added', fact: { kind: 'external', host: 'api.mailgun.net', via: 'url', where: where('m.js') }, denominator: { property: 'new outbound call', matching: 1, total: 2, noun: 'external calls' } },
     { type: 'added', fact: { kind: 'write', table: 'users', module: 'billing', where: where('b.js') }, denominator: { property: 'first write from billing', matching: 1, total: 2, noun: 'modules write users' } },
     { type: 'added', fact: { kind: 'external', host: 'api.stripe.com', via: 'url', where: where('s.js') } },
@@ -61,7 +61,7 @@ describe('the receipt, after the third review', () => {
   })
 
   it('describes an open DELETE by what the method means, not a guess about the handler', () => {
-    expect(renderTerminal(fiveChanges(), { columns: 100, voice: 'plain' })).toContain('Anyone on the internet can send it a delete request.')
+    expect(renderTerminal(fiveChanges(), { columns: 100, voice: 'plain' })).toContain('I found nothing that stops a delete request before it runs.')
   })
 
   it('says how many files it read, not how many were touched', () => {
@@ -70,7 +70,7 @@ describe('the receipt, after the third review', () => {
 
   it('translates the markdown for a friend, not only the labels', () => {
     const md = renderMarkdown(fiveChanges(), 'plain')
-    expect(md).toContain('nothing checks it')
+    expect(md).toContain('no check found')
     expect(md).not.toMatch(/middleware|outbound call|modules write/)
   })
 

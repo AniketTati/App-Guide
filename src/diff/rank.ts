@@ -126,8 +126,8 @@ export function summarise(changes: readonly Change[], firstRun = false, voice: '
   if (routes.length > 0) {
     const bare = routes.filter((c) => c.fact.kind === 'route' && c.fact.middleware !== 'unresolved' && c.fact.middleware.length === 0)
     let clause = `added ${count(routes.length, 'route')}`
-    if (bare.length === 1) clause += ', one with no middleware'
-    else if (bare.length > 1) clause += `, ${bare.length} with no middleware`
+    if (bare.length === 1) clause += ', one with no check found'
+    else if (bare.length > 1) clause += `, ${bare.length} with no check found`
     clauses.push(clause)
   }
 
@@ -178,7 +178,9 @@ function summarisePlain(changes: readonly Change[], firstRun: boolean): string {
   const open = routes.filter((c) => c.fact.kind === 'route' && c.fact.middleware !== 'unresolved' && c.fact.middleware.length === 0)
   if (routes.length > 0) {
     clauses.push(open.length > 0
-      ? `added ${count(routes.length, 'new URL')}, ${open.length === routes.length ? '' : `${open.length} of which `}with nothing checking who can use ${open.length === 1 ? 'it' : 'them'}`.replace(', with', ' with')
+      ? (open.length === routes.length
+          ? `added ${count(routes.length, 'new URL')} with no check I could find`
+          : `added ${count(routes.length, 'new URL')}, ${open.length} of which ${open.length === 1 ? 'has' : 'have'} no check I could find`)
       : `added ${count(routes.length, 'new URL')}`)
   }
 

@@ -68,7 +68,7 @@ describe('the grid holds', () => {
 
 describe('what it says', () => {
   it('leads with one sentence of English', () => {
-    expect(render(alarming())).toContain('Your agent added 3 routes, one with no middleware')
+    expect(render(alarming())).toContain('Your agent added 3 routes, one with no check found')
   })
 
   it('shows a denominator, never an adjective', () => {

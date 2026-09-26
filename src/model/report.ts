@@ -23,7 +23,7 @@ export interface Change {
 }
 
 export interface Denominator {
-  /** e.g. "no middleware" */
+  /** e.g. "no check found" */
   property: string
   matching: number
   total: number

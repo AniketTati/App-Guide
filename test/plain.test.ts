@@ -61,13 +61,15 @@ describe('a reader who does not write code', () => {
     const { dir } = await scenario()
     const first = (await plain(dir)).split('\n').find((l) => l.includes('Your agent'))
     expect(first).toBeDefined()
-    expect(first).toContain('nothing checking who can use it')
+    expect(first).toContain('with no check I could find')
   })
 
   it('is told why it might matter, without being told it is dangerous', async () => {
     const { dir } = await scenario()
     const out = await plain(dir)
-    expect(out).toContain('Anyone on the internet can send data to this one.')
+    expect(out).toContain('I found nothing that stops someone sending it data.')
+    // What was measured, never what it would mean: no "anyone can".
+    expect(out).not.toMatch(/\banyone\b/i)
     // Translating is allowed. Judging is not — a verdict cannot be checked.
     expect(out).not.toMatch(/insecure|dangerous|critical|vulnerab|you should|risk/i)
   })
@@ -111,8 +113,8 @@ describe('a reader who does not write code', () => {
     await writeFile(join(dir, 'src/api.ts'),
       `const app = express()\n${guarded}\napp.get('/a', h)\napp.get('/b', h)\napp.get('/c', h)\n`)
     const out = renderTerminal(await run({ root: dir, mark: false, voice: 'plain' }), { columns: 78, voice: 'plain' })
-    if (out.includes('every other URL is checked')) {
-      expect(out).toMatch(/nothing checks it · 1 of \d+/)
+    if (out.includes('every other URL has a check')) {
+      expect(out).toMatch(/no check found · 1 of \d+/)
     }
   })
 

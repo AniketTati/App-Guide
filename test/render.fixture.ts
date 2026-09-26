@@ -8,7 +8,7 @@ export const alarming = (): Report => {
   const changes: Change[] = [
     { type: 'added',
       fact: { kind: 'route', method: 'POST', path: '/api/admin/reset-usage', middleware: [], framework: 'express', where: w('src/api/admin.ts', 14) },
-      denominator: { property: 'no middleware', matching: 1, total: 48, noun: 'routes' } },
+      denominator: { property: 'no check found', matching: 1, total: 48, noun: 'routes' } },
     { type: 'added',
       fact: { kind: 'write', table: 'users', module: 'billing/usage.ts', where: w('src/billing/usage.ts', 112) },
       denominator: { property: 'first write from billing/', matching: 1, total: 4, noun: 'writers' } },

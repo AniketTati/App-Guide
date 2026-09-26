@@ -343,7 +343,7 @@ export const plainNoun = (noun: string): string => noun
   .replace(/\bdependencies\b/, 'packages')
   .replace(/\bexternal calls\b/, 'outside services')
 export const plainProperty = (p: string): string => p
-  .replace(/^no middleware$/, 'nothing checks it')
+  .replace(/^no check found$/, 'no check found')
   .replace(/^new dependency$/, 'new package')
   .replace(/^new outbound call$/, 'new outside service')
   .replace(/^first write from /, 'first change from ')
@@ -356,8 +356,8 @@ function secondary(change: Change, voice: Voice = 'technical'): string {
   const plain = voice === 'plain'
   switch (change.fact.kind) {
     case 'route': return d.matching === 1
-      ? (plain ? 'every other URL is checked' : 'every other route has one')
-      : (plain ? `${others} of the rest ${others === 1 ? 'is' : 'are'} checked` : `${others} other${others === 1 ? ' has' : 's have'} one`)
+      ? (plain ? 'every other URL has a check' : 'every other route has one')
+      : (plain ? `${others} of the rest ${others === 1 ? 'has' : 'have'} a check` : `${others} other${others === 1 ? ' has' : 's have'} one`)
     case 'write': return plain
       ? `${others} other place${others === 1 ? '' : 's'} already could`
       : `${others} other module${others === 1 ? '' : 's'} write it`

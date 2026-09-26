@@ -31,7 +31,7 @@ export const technical: Words = {
   kind: (f) => f.kind,
   detail: (c) => {
     const f = c.fact
-    if (f.kind === 'route') return f.middleware === 'unresolved' ? 'chain unresolved' : (f.middleware.join(', ') || 'no middleware')
+    if (f.kind === 'route') return f.middleware === 'unresolved' ? 'checks not resolved' : (f.middleware.join(', ') || 'no check found')
     if (f.kind === 'library') return `${f.version}${f.direct ? '' : ' (undeclared)'}`
     if (f.kind === 'external') return f.via
     return ''
@@ -67,7 +67,7 @@ export const plain: Words = {
     if (f.kind === 'route') {
       if (f.middleware === 'unresolved') return "I couldn't tell what checks this"
       // Counting the checks is a fact. Naming what they do is a guess.
-      if (f.middleware.length === 0) return 'nothing checks who is calling it'
+      if (f.middleware.length === 0) return 'no check found before it runs'
       return `${f.middleware.length} check${f.middleware.length === 1 ? '' : 's'} run first`
     }
     if (f.kind === 'library') return `version ${f.version}${f.direct ? '' : ", which isn't in your package list"}`
@@ -87,11 +87,14 @@ export const plain: Words = {
         // What the method means by HTTP's own definition — never a guess about
         // what the handler does.
         switch (f.method.toUpperCase()) {
-          case 'DELETE': return 'Anyone on the internet can send it a delete request.'
-          case 'PUT': case 'PATCH': return 'Anyone on the internet can send it changes.'
-          case 'POST': return 'Anyone on the internet can send data to this one.'
-          case 'ALL': return 'Anyone on the internet can send it any kind of request.'
-          default: return 'Anyone on the internet can reach this one.'
+          // What was measured, not what it would mean: "I found nothing
+          // that stops it", never "anyone can". A check we could not see
+          // into still counts, so this is an absence we looked for.
+          case 'DELETE': return 'I found nothing that stops a delete request before it runs.'
+          case 'PUT': case 'PATCH': return 'I found nothing that stops a request to change it.'
+          case 'POST': return 'I found nothing that stops someone sending it data.'
+          case 'ALL': return 'I found nothing that stops any kind of request to it.'
+          default: return 'I found nothing that stops someone reading it.'
         }
       }
       case 'library': return "Someone else's code now runs inside your app."

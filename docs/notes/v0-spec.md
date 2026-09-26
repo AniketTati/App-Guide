@@ -53,7 +53,7 @@ the eye reads a word.
 Each is a *changed fact*, not a state.
 
 1. **Routes** added / removed / changed — and whether the new one has middleware.
-   *"New route, no middleware"* is the most valuable line this will ever print.
+   *"New route, no check found"* is the most valuable line this will ever print.
 2. **Dependencies** added / removed, direct and transitive.
 3. **Outbound calls** — new external hosts or SDKs reached.
 4. **Data writes** — first-ever write to a table from a module that never wrote
@@ -78,7 +78,7 @@ Zero opinions. Every input is countable.
 The tool never says a change is dangerous. It says the change is **the only one
 of its kind here**, and lets the shape of the codebase supply the alarm.
 
-`no middleware · 1 of 48 routes` is not a judgment. It is a ratio the reader can
+`no check found · 1 of 48 routes` is not a judgment. It is a ratio the reader can
 verify and the tool cannot get wrong.
 
 - **No line is promoted to the top block without a corroborating denominator.**
@@ -101,11 +101,11 @@ kind, this will not rank it. Anything more is a rules engine.
 ────────────────────────────────────────────────────────────────────────────
  appguide · session 14:02–15:47 · 31 files
 
- Your agent added 3 routes, one with no middleware, made billing/ write to
+ Your agent added 3 routes, one with no check found, made billing/ write to
  users for the first time, and pulled in node-fetch.
 
  NEW TO THIS CODEBASE
-   route   POST /api/admin/reset-usage      no middleware · 1 of 48 routes
+   route   POST /api/admin/reset-usage      no check found · 1 of 48 routes
            src/api/admin.ts:14              every other route has ≥1
 
    write   billing/usage.ts → users         first write to users from outside

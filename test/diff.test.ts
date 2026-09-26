@@ -57,7 +57,7 @@ describe('the top-block invariant', () => {
   })
 
   it('promotes only added facts that carry a denominator', () => {
-    const withNumber: Change = { type: 'added', fact: route('/a'), denominator: { property: 'no middleware', matching: 1, total: 48, noun: 'routes' } }
+    const withNumber: Change = { type: 'added', fact: route('/a'), denominator: { property: 'no check found', matching: 1, total: 48, noun: 'routes' } }
     const without: Change = { type: 'added', fact: route('/b') }
     const { top, also } = split(rank([withNumber, without]))
     expect(top).toEqual([withNumber])
@@ -68,7 +68,7 @@ describe('the top-block invariant', () => {
     const many: Change[] = Array.from({ length: 9 }, (_, i) => ({
       type: 'added' as const,
       fact: route(`/r${i}`),
-      denominator: { property: 'no middleware', matching: 1, total: 48, noun: 'routes' },
+      denominator: { property: 'no check found', matching: 1, total: 48, noun: 'routes' },
     }))
     const { top, also } = split(rank(many))
     expect(top).toHaveLength(TOP_BLOCK_LIMIT)
@@ -86,13 +86,13 @@ describe('summary', () => {
   it('counts several rather than listing them', () => {
     expect(summarise(compare([], [lib('a'), lib('b'), lib('c')]))).toBe('Your agent pulled in 3 dependencies.')
   })
-  it('calls out routes with no middleware', () => {
+  it('calls out routes with no check found', () => {
     const changes = compare([], [route('/a', []), route('/b')])
-    expect(summarise(changes)).toBe('Your agent added 2 routes, one with no middleware.')
+    expect(summarise(changes)).toBe('Your agent added 2 routes, one with no check found.')
   })
   it('joins clauses in English', () => {
     const changes = compare([], [route('/a', []), lib('zod')])
-    expect(summarise(changes)).toBe('Your agent added 1 route, one with no middleware, and pulled in zod.')
+    expect(summarise(changes)).toBe('Your agent added 1 route, one with no check found, and pulled in zod.')
   })
 })
 
@@ -114,8 +114,8 @@ describe('determinism', () => {
 describe('ranking within routes', () => {
   it('puts a route that accepts writes above one that only serves reads', () => {
     const base = { middleware: [] as string[], framework: 'express', where: { file: 'a.ts', line: 1 } }
-    const get: Change = { type: 'added', fact: { kind: 'route', method: 'GET', path: '/a', ...base }, denominator: { property: 'no middleware', matching: 2, total: 4, noun: 'routes' } }
-    const del: Change = { type: 'added', fact: { kind: 'route', method: 'DELETE', path: '/z', ...base }, denominator: { property: 'no middleware', matching: 2, total: 4, noun: 'routes' } }
+    const get: Change = { type: 'added', fact: { kind: 'route', method: 'GET', path: '/a', ...base }, denominator: { property: 'no check found', matching: 2, total: 4, noun: 'routes' } }
+    const del: Change = { type: 'added', fact: { kind: 'route', method: 'DELETE', path: '/z', ...base }, denominator: { property: 'no check found', matching: 2, total: 4, noun: 'routes' } }
     expect(rank([get, del])[0]).toBe(del)
   })
 })

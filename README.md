@@ -19,11 +19,11 @@ Deterministic. Local. No model, no API key, no account.
 ```
  appguide · session 14:02–15:47 · 31 files
 
- Your agent added 3 routes, one with no middleware, made billing/ write to
+ Your agent added 3 routes, one with no check found, made billing/ write to
  users for the first time, and pulled in node-fetch.
 
  NEW TO THIS CODEBASE
-   route   POST /api/admin/reset-usage      no middleware · 1 of 48 routes
+   route   POST /api/admin/reset-usage      no check found · 1 of 48 routes
            src/api/admin.ts:14              every other route has ≥1
 
    write   billing/usage.ts → users         first write to users from outside
@@ -64,14 +64,14 @@ It looks like this:
 ```
  appguide · 3 files
 
- Your agent added 1 new URL with nothing checking who can use it, let 2 new
+ Your agent added 1 new URL with no check I could find, let 2 new
  parts of your app change your users data, and started talking to
  api.stripe.com.
 
  WORTH A LOOK
-  #1  URL      POST /api/admin/reset-usage   nothing checks it · 1 of 10 URLs
-               src/api.ts:11                 every other URL is checked
-               Anyone on the internet can reach this one.
+  #1  URL      POST /api/admin/reset-usage   no check found · 1 of 10 URLs
+               src/api.ts:11                 every other URL has a check
+               I found nothing that stops someone sending it data.
 
  WHAT I COULDN'T READ
    I can't read hono yet, so anything it creates is missing from this list.
@@ -93,8 +93,8 @@ To remove it, ask your agent to run:
 npx --yes github:AniketTati/App-Guide init-hook --uninstall
 ```
 
-**It will never tell you something is dangerous.** It says *"nothing checks
-it — 1 of 10 URLs"*, which is a count you can check, not an opinion you have to
+**It will never tell you something is dangerous.** It says *"no check found
+— 1 of 10 URLs"*, which is a count you can check, not an opinion you have to
 trust. And it always tells you what it couldn't read, so a short list never
 quietly means a clean bill of health.
 
@@ -110,7 +110,12 @@ Two reasons, and neither closes as models improve:
 
 ## Severity without a rules engine
 
-It never says a change is dangerous. It says `no middleware · 1 of 48 routes` —
+A *check* is anything that runs before a route's handler and can refuse the
+request — a 401 or 403, a throw — or an explicit 401/403 in the handler itself.
+A check whose code it cannot read, from a package, still counts. So *no check
+found* is an absence it looked for, never a claim that anyone can call it.
+
+It never says a change is dangerous. It says `no check found · 1 of 48 routes` —
 a ratio you can verify and it cannot get wrong. **No finding is promoted without
 a corroborating denominator**, which is a mechanical guarantee against false
 alarms.

@@ -54,7 +54,7 @@ function denominatorFor(change: Change, pop: Population): Denominator | null {
     // of open login and signup forms does not make a new open DELETE ordinary.
     // Applying the quiet rule to both buried exactly that route in a review.
     if (!isWriteMethod(f.method) && pop.bare / pop.routes > 0.5) return null
-    return { property: 'no middleware', matching: pop.bare, total: pop.routes, noun: 'routes' }
+    return { property: 'no check found', matching: pop.bare, total: pop.routes, noun: 'routes' }
   }
 
   if (f.kind === 'write') {

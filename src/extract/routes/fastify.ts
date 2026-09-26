@@ -9,6 +9,12 @@ import { isTestFile } from '../files.js'
 const METHODS = new Set(['get', 'post', 'put', 'patch', 'delete', 'options', 'head', 'all'])
 /** The hooks that run before a handler: where a check lives. */
 const CHECK_HOOKS = new Set(['onRequest', 'preParsing', 'preValidation', 'preHandler'])
+/** Methods on a reply that end a request without the handler's answer. */
+const REFUSING_REPLIES = new Set(['unauthorized', 'forbidden', 'notFound', 'badRequest', 'redirect'])
+/** A check written inside a handler: an explicit 401 or 403. Anything wider —
+ *  a 404 for a missing row, a 400 for bad input — is the handler's own work. */
+const HANDLER_REFUSALS = new Set([401, 403])
+const IN_HANDLER = 'in-handler check'
 
 type Fn = ts.FunctionDeclaration | ts.FunctionExpression | ts.ArrowFunction
 
@@ -18,9 +24,11 @@ interface FileIndex {
   locals: Map<string, Fn>
   /** Exported functions by exported name; 'default' for the default export. */
   exported: Map<string, Fn>
+  /** Exported constants by name: `export const ownScopeContractGuard = …`. */
+  exportedConsts: Map<string, ts.Expression>
   /** Local name -> the relative module and name it was imported from. */
   imports: Map<string, { path: string; name: string }>
-  /** Local names imported from a package (a library plugin, never ours). */
+  /** Local names imported from a package (a library, never ours to read). */
   packages: Set<string>
   /** Local names bound to the Fastify factory. */
   factories: Set<string>
@@ -28,35 +36,56 @@ interface FileIndex {
   sharers: Set<string>
 }
 
+/** How to read a name where it appears: a helper's parameters bound to what
+ *  its caller passed, then the constants in scope. */
+interface Env {
+  idx: FileIndex
+  bindings: ReadonlyMap<string, { expr: ts.Expression; env: Env }>
+  consts: (name: string) => ts.Expression | undefined
+}
+
+/** A check installed by an `onRoute` hook: it is added to every route
+ *  registered after it, in its plugin and below, whose URL matches. */
+interface RouteGuard { checks: readonly string[]; pattern: RegExp | null }
+
 interface Scope {
   prefix: string
   /** Checks inherited from enclosing plugins. The app's own hooks are left out,
    *  as Express's app-wide middleware is: they run for every route, so they
    *  cannot tell one route from another. */
   hooks: readonly string[]
+  /** onRoute guards in force. Shared with helpers called on the same
+   *  instance; copied for child plugins, which inherit what came before. */
+  guards: RouteGuard[]
   root: boolean
   /** Where the prefix could not be followed — the route is scoped to its file. */
   unmounted: boolean
 }
 
+type Verdict = 'refuses' | 'passes' | 'unknown'
+
 /**
  * Fastify: `app.register(plugin, { prefix })` resolved across files, routes as
  * `app.get(path, [options], handler)` or `app.route({ method, url })`, and the
- * checks that run before each one — route-level `preHandler`/`onRequest`/…
- * and the hooks a plugin adds for every route inside it. Whatever is decided
- * while the app runs, or registered by code we cannot follow, becomes a gap.
+ * checks that run before each one.
+ *
+ * A check is a hook whose code can refuse the request — a 4xx, a throw, an
+ * error passed to `done` — followed through the functions it calls. A hook
+ * whose code is read and cannot refuse (one that only records, say) is not a
+ * check. A hook we cannot read, from a package, still counts: dropping it would
+ * turn "a check we cannot see into" into "no check found".
  */
 export const fastify: RouteDetector = {
   name: 'fastify',
   packages: ['fastify'],
   detect({ files }) {
     const facts: Fact[] = []
-    // Tests build the app too — at other prefixes, or twice. The caller has
-    // already left them out; this keeps the detector safe on its own.
+    // Tests build the app too — at other prefixes, or twice.
     const sources = files.filter((f) => !isTestFile(f.path))
     const paths = new Set(sources.map((f) => f.path))
     const index = new Map(sources.map((f) => [f.path, indexFile(f, paths)]))
-    const walked = new Set<Fn>()
+    const reached = new Set<Fn>()
+    const verdicts = new Map<Fn, Verdict>()
 
     const lineOf = (idx: FileIndex, n: ts.Node): number =>
       idx.file.ast.getLineAndCharacterOfPosition(n.getStart(idx.file.ast)).line + 1
@@ -65,8 +94,8 @@ export const fastify: RouteDetector = {
       facts.push({ kind: 'gap', reason, subject: `${idx.file.path}:${line}`, detail, where: { file: idx.file.path, line } })
     }
 
-    /** A plugin function wherever it is defined, or null if it is not ours. */
-    const resolve = (idx: FileIndex, name: string): { idx: FileIndex; fn: Fn } | 'package' | null => {
+    /** A function wherever it is defined; 'package' if it is a library's. */
+    const resolveFn = (idx: FileIndex, name: string): { idx: FileIndex; fn: Fn } | 'package' | null => {
       const local = idx.locals.get(name)
       if (local !== undefined) return { idx, fn: local }
       if (idx.packages.has(name)) return 'package'
@@ -76,12 +105,157 @@ export const fastify: RouteDetector = {
       const fn = target?.exported.get(imported.name)
       return target !== undefined && fn !== undefined ? { idx: target, fn } : null
     }
+    /** An imported constant: `import { ownScopeContractGuard } from '../lib/…'`. */
+    const importedConst = (idx: FileIndex, name: string): { idx: FileIndex; expr: ts.Expression } | null => {
+      const imported = idx.imports.get(name)
+      const target = imported === undefined ? undefined : index.get(imported.path)
+      const expr = target?.exportedConsts.get(imported!.name)
+      return target !== undefined && expr !== undefined ? { idx: target, expr } : null
+    }
+    const envFor = (idx: FileIndex, body: ts.Node, bindings: ReadonlyMap<string, { expr: ts.Expression; env: Env }> = new Map()): Env =>
+      ({ idx, bindings, consts: constants(body, idx.file.ast) })
 
-    const walk = (idx: FileIndex, body: ts.Node, instances: ReadonlySet<string>, scope: Scope, depth: number): void => {
-      if (depth > 12) return
-      const src = idx.file.ast
-      const lookup = constants(body, src)
-      const own = scope.root ? [] : localHooks(body, instances, src, lookup)
+    /** Follow a name to the expression it stands for, as far as the code says. */
+    const deref = (expr: ts.Expression, env: Env, depth = 0): { expr: ts.Expression; env: Env } => {
+      const e = unwrap(expr)
+      if (!ts.isIdentifier(e) || depth > 6) return { expr: e, env }
+      const bound = env.bindings.get(e.text)
+      if (bound !== undefined) return deref(bound.expr, bound.env, depth + 1)
+      const local = env.consts(e.text)
+      if (local !== undefined && !ts.isArrowFunction(unwrap(local)) && !ts.isFunctionExpression(unwrap(local))) return deref(local, env, depth + 1)
+      const imported = importedConst(env.idx, e.text)
+      if (imported !== null) return deref(imported.expr, envFor(imported.idx, imported.idx.file.ast), depth + 1)
+      return { expr: e, env }
+    }
+
+    /** Can this function's code refuse a request? Followed through what it calls. */
+    const verdictOf = (idx: FileIndex, fn: Fn, depth: number): Verdict => {
+      const memo = verdicts.get(fn)
+      if (memo !== undefined) return memo
+      if (depth > 4) return 'unknown'
+      verdicts.set(fn, 'passes') // a cycle adds nothing
+      const params = fn.parameters.map((p) => (ts.isIdentifier(p.name) ? p.name.text : ''))
+      // A callback hook refuses by calling `done(err)`.
+      const done = fn.parameters.length >= 3 ? params[2] : undefined
+      let result: Verdict = 'passes'
+      const note = (v: Verdict): void => { if (v === 'refuses' || (v === 'unknown' && result === 'passes')) result = v }
+      const visit = (node: ts.Node): void => {
+        if (result === 'refuses') return
+        if (ts.isThrowStatement(node)) { result = 'refuses'; return }
+        if (ts.isCallExpression(node)) {
+          const callee = unwrap(node.expression)
+          if (ts.isPropertyAccessExpression(callee)) {
+            const name = callee.name.text
+            const [first] = node.arguments
+            if ((name === 'status' || name === 'code') && first !== undefined && ts.isNumericLiteral(first)) {
+              const code = Number(first.text)
+              if (code >= 400 && code < 500) { result = 'refuses'; return }
+            }
+            if (REFUSING_REPLIES.has(name)) { result = 'refuses'; return }
+            const root = rootIdentifier(callee)
+            if (root !== null && idx.packages.has(root) && passesRequest(node, params)) note('unknown')
+          } else if (ts.isIdentifier(callee)) {
+            if (done !== undefined && callee.text === done) {
+              const [arg] = node.arguments
+              if (arg !== undefined && !isNothing(arg)) { result = 'refuses'; return }
+            } else {
+              const target = resolveFn(idx, callee.text)
+              if (target === 'package') { if (passesRequest(node, params)) note('unknown') }
+              else if (target !== null) {
+                // `recordingModelOutput(done)`: the callback is passed on, so it
+                // is read under the name it has there.
+                note(verdictOf(target.idx, target.fn, depth + 1))
+              }
+            }
+          }
+        }
+        ts.forEachChild(node, visit)
+      }
+      if (fn.body !== undefined) visit(fn.body)
+      verdicts.set(fn, result)
+      return result
+    }
+
+    /** A check as written, and whether its code can refuse. */
+    const checksOf = (expr: ts.Expression, hook: string, env: Env, depth = 0): { name: string; verdict: Verdict }[] | null => {
+      const e = unwrap(expr)
+      if (depth > 6) return null
+      if (ts.isArrayLiteralExpression(e)) {
+        const out: { name: string; verdict: Verdict }[] = []
+        for (const el of e.elements) {
+          if (ts.isSpreadElement(el)) return null
+          const inner = checksOf(el, hook, env, depth)
+          if (inner === null) return null
+          out.push(...inner)
+        }
+        return out
+      }
+      if (ts.isConditionalExpression(e)) {
+        const test = evaluate(e.condition, env)
+        if (test !== undefined) return checksOf(test ? e.whenTrue : e.whenFalse, hook, env, depth + 1)
+        return null
+      }
+      if (ts.isIdentifier(e)) {
+        const target = deref(e, env)
+        if (target.expr !== e) return checksOf(target.expr, hook, target.env, depth + 1)
+        const fn = resolveFn(env.idx, e.text)
+        const verdict: Verdict = fn === null || fn === 'package' ? 'unknown' : verdictOf(fn.idx, fn.fn, 0)
+        return [{ name: e.text, verdict }]
+      }
+      if (ts.isPropertyAccessExpression(e)) return [{ name: e.getText(env.idx.file.ast), verdict: 'unknown' }]
+      if (ts.isCallExpression(e)) {
+        // A factory: `requirePermission('approve', 'approval')` returns the hook.
+        const callee = unwrap(e.expression)
+        const fn = ts.isIdentifier(callee) ? resolveFn(env.idx, callee.text) : null
+        const verdict: Verdict = fn === null || fn === 'package' ? 'unknown' : verdictOf(fn.idx, fn.fn, 0)
+        return [{ name: e.getText(env.idx.file.ast).replace(/\s+/g, ' ').replace(/\(\s+/g, '(').replace(/,?\s+\)/g, ')'), verdict }]
+      }
+      if (ts.isArrowFunction(e) || ts.isFunctionExpression(e)) return [{ name: `inline ${hook}`, verdict: verdictOf(env.idx, e, 0) }]
+      return null
+    }
+    /** The names of the checks that can refuse, or null if one cannot be named. */
+    const named = (expr: ts.Expression, hook: string, env: Env): string[] | null => {
+      const found = checksOf(expr, hook, env)
+      return found === null ? null : found.filter((c) => c.verdict !== 'passes').map((c) => c.name)
+    }
+
+    /** `if (!pattern.test(route.url)) return` at the top of an onRoute hook. */
+    const guardOf = (fn: Fn, env: Env): RouteGuard | null => {
+      const route = fn.parameters[0]?.name
+      if (route === undefined || !ts.isIdentifier(route) || fn.body === undefined || !ts.isBlock(fn.body)) return null
+      let pattern: RegExp | null = null
+      const checks: string[] = []
+      for (const stmt of fn.body.statements) {
+        if (ts.isIfStatement(stmt) && ts.isPrefixUnaryExpression(stmt.expression) && stmt.expression.operator === ts.SyntaxKind.ExclamationToken) {
+          const test = unwrap(stmt.expression.operand)
+          if (ts.isCallExpression(test) && ts.isPropertyAccessExpression(test.expression) && test.expression.name.text === 'test') {
+            const re = deref(test.expression.expression, env).expr
+            if (ts.isRegularExpressionLiteral(re)) {
+              const m = /^\/(.*)\/([a-z]*)$/s.exec(re.text)
+              if (m !== null) { try { pattern = new RegExp(m[1]!, m[2]) } catch { return null } }
+            } else return null
+          }
+        }
+        // `route.preHandler = [...existing, guard]` or `route.preHandler.push(guard)`.
+        const visit = (node: ts.Node): void => {
+          if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+              ts.isPropertyAccessExpression(node.left) && ts.isIdentifier(node.left.expression) && node.left.expression.text === route.text &&
+              CHECK_HOOKS.has(node.left.name.text)) {
+            const value = unwrap(node.right)
+            const added = ts.isArrayLiteralExpression(value) ? value.elements.filter((el) => !ts.isSpreadElement(el)) : [value]
+            for (const a of added) checks.push(...(named(a, node.left.name.text, env) ?? [`${node.left.name.text} hook`]))
+          }
+          ts.forEachChild(node, visit)
+        }
+        visit(stmt)
+      }
+      return checks.length > 0 ? { checks, pattern } : null
+    }
+
+    const walk = (env: Env, body: ts.Node, instances: ReadonlySet<string>, scope: Scope, stack: readonly Fn[]): void => {
+      if (stack.length > 12) return
+      const idx = env.idx
+      const own = scope.root ? [] : localHooks(body, instances, (expr, hook) => named(expr, hook, env))
       const checks: readonly string[] = [...scope.hooks, ...own]
       const aliases = new Set(instances)
 
@@ -96,19 +270,38 @@ export const fastify: RouteDetector = {
             gap(idx, node, 'dynamic-dispatch', 'routes are registered with a method chosen while the app runs, so which ones exist is not known until then')
           } else if (ts.isPropertyAccessExpression(callee) && isInstance(callee.expression, aliases)) {
             const name = callee.name.text
-            if (name === 'register') { register(idx, node, scope, checks, depth); return }
-            if (name === 'route') { routeObject(idx, node, scope, checks, lookup); return }
-            if (METHODS.has(name.toLowerCase()) && node.arguments.length >= 2) { shorthand(idx, node, name.toLowerCase(), scope, checks, lookup); return }
+            if (name === 'register') { register(env, node, scope, checks, stack); return }
+            if (name === 'route') { routeObject(env, node, scope, checks); return }
+            if (name === 'addHook') {
+              const [hook, fn] = node.arguments
+              if (hook !== undefined && ts.isStringLiteralLike(hook) && hook.text === 'onRoute' && fn !== undefined) {
+                const target = unwrap(fn)
+                const hookFn = ts.isArrowFunction(target) || ts.isFunctionExpression(target) ? target : null
+                const guard = hookFn === null ? null : guardOf(hookFn, env)
+                if (guard !== null) scope.guards.push(guard)
+              }
+              return
+            }
+            if (METHODS.has(name.toLowerCase()) && node.arguments.length >= 2) { shorthand(env, node, name.toLowerCase(), scope, checks); return }
           } else if (ts.isIdentifier(callee) && node.arguments.some((a) => isInstance(a, aliases))) {
-            // `defineAdminRoutes(app)`: a helper that adds routes to the
-            // instance it is given, in the same plugin.
-            const helper = resolve(idx, callee.text)
-            const at = node.arguments.findIndex((a) => isInstance(a, aliases))
-            if (helper !== null && helper !== 'package' && !walked.has(helper.fn)) {
+            // `guardOwnScopeRoutes(app, /\/:id/, guard)`: a helper working on
+            // the instance it is given, in this same plugin — read at every
+            // call, with its parameters bound to what this call passes.
+            const helper = resolveFn(idx, callee.text)
+            if (helper !== null && helper !== 'package' && !stack.includes(helper.fn) && helper.fn.body !== undefined) {
+              const at = node.arguments.findIndex((a) => isInstance(a, aliases))
               const param = helper.fn.parameters[at]?.name
               if (param !== undefined && ts.isIdentifier(param)) {
-                walked.add(helper.fn)
-                if (helper.fn.body !== undefined) walk(helper.idx, helper.fn.body, new Set([param.text]), { ...scope, hooks: checks, root: false }, depth + 1)
+                const bindings = new Map<string, { expr: ts.Expression; env: Env }>()
+                helper.fn.parameters.forEach((p, i) => {
+                  if (!ts.isIdentifier(p.name) || i === at) return
+                  const arg = node.arguments[i]
+                  if (arg !== undefined) bindings.set(p.name.text, { expr: arg, env })
+                  else if (p.initializer !== undefined) bindings.set(p.name.text, { expr: p.initializer, env: envFor(helper.idx, helper.fn) })
+                })
+                reached.add(helper.fn)
+                walk(envFor(helper.idx, helper.fn.body, bindings), helper.fn.body, new Set([param.text]),
+                  { ...scope, hooks: checks, root: false }, [...stack, helper.fn])
               }
             }
           }
@@ -118,25 +311,29 @@ export const fastify: RouteDetector = {
       visit(body)
     }
 
-    const register = (idx: FileIndex, call: ts.CallExpression, scope: Scope, checks: readonly string[], depth: number): void => {
+    const register = (env: Env, call: ts.CallExpression, scope: Scope, checks: readonly string[], stack: readonly Fn[]): void => {
+      const idx = env.idx
       const [target, options] = call.arguments
       if (target === undefined) return
       const opts = options !== undefined && ts.isObjectLiteralExpression(options) ? options : undefined
       const prefixProp = opts === undefined ? undefined : property(opts, 'prefix')
-      const known = prefixProp === undefined || ts.isStringLiteralLike(prefixProp)
+      const prefixValue = prefixProp === undefined ? undefined : deref(prefixProp, env).expr
+      const known = prefixProp === undefined || (prefixValue !== undefined && ts.isStringLiteralLike(prefixValue))
       const child = (fn: Fn, where: FileIndex, shared: boolean): void => {
-        if (walked.has(fn)) return
-        walked.add(fn)
+        if (stack.includes(fn)) return
+        reached.add(fn)
         const param = fn.parameters[0]?.name
         if (param === undefined || !ts.isIdentifier(param) || fn.body === undefined) return
         if (!known) gap(idx, call, 'unresolved-route-prefix', 'this plugin is mounted at a prefix computed while the app runs, so its full paths are not known')
-        walk(where, fn.body, new Set([param.text]), {
+        const own = prefixValue !== undefined && ts.isStringLiteralLike(prefixValue) ? prefixValue.text : ''
+        walk(envFor(where, fn.body), fn.body, new Set([param.text]), {
           // fastify-plugin shares the parent's context, prefix included.
-          prefix: shared || prefixProp === undefined || !ts.isStringLiteralLike(prefixProp) ? scope.prefix : `${scope.prefix}${prefixProp.text}`,
+          prefix: shared ? scope.prefix : `${scope.prefix}${own}`,
           hooks: checks,
+          guards: shared ? scope.guards : [...scope.guards],
           root: false,
           unmounted: scope.unmounted || !known,
-        }, depth + 1)
+        }, [...stack, fn])
       }
 
       let expr: ts.Expression = unwrap(target)
@@ -147,7 +344,7 @@ export const fastify: RouteDetector = {
       }
       if (ts.isArrowFunction(expr) || ts.isFunctionExpression(expr)) return child(expr, idx, shared)
       if (ts.isIdentifier(expr)) {
-        const found = resolve(idx, expr.text)
+        const found = resolveFn(idx, expr.text)
         if (found === 'package') return library(idx, call, prefixProp)
         if (found !== null) return child(found.fn, found.idx, shared)
       }
@@ -166,35 +363,73 @@ export const fastify: RouteDetector = {
       gap(idx, call, 'dynamic-dispatch', `a plugin from a library is mounted here${at}; the routes it adds are not listed`)
     }
 
-    const emit = (idx: FileIndex, node: ts.Node, method: string, path: string, scope: Scope, middleware: Middleware): void => {
-      const line = lineOf(idx, node)
+    const emit = (env: Env, node: ts.Node, method: string, path: string, scope: Scope, middleware: Middleware, handler: ts.Expression | undefined): void => {
+      const full = normalise(`${scope.prefix}${path}`)
+      let checks: Middleware = middleware
+      if (checks !== 'unresolved') {
+        const guarded = scope.guards.filter((g) => g.pattern === null || g.pattern.test(full)).flatMap((g) => g.checks)
+        const inside = handler !== undefined && refusesInHandler(handler, env) ? [IN_HANDLER] : []
+        checks = [...checks, ...guarded, ...inside]
+      }
       facts.push({
         kind: 'route',
         method: method === 'all' ? 'ALL' : method.toUpperCase(),
-        path: normalise(`${scope.prefix}${path}`),
-        middleware,
+        path: full,
+        middleware: checks,
         framework: 'fastify',
-        ...(scope.unmounted ? { scope: idx.file.path } : {}),
-        where: { file: idx.file.path, line },
+        ...(scope.unmounted ? { scope: env.idx.file.path } : {}),
+        where: { file: env.idx.file.path, line: lineOf(env.idx, node) },
       })
     }
 
-    const shorthand = (idx: FileIndex, call: ts.CallExpression, method: string, scope: Scope, checks: readonly string[], lookup: Lookup): void => {
+    /** An explicit 401/403 in the handler, or in a function it calls. */
+    const refusesInHandler = (handler: ts.Expression, env: Env): boolean => {
+      const target = deref(handler, env).expr
+      const fn = ts.isArrowFunction(target) || ts.isFunctionExpression(target) ? { idx: env.idx, fn: target as Fn }
+        : ts.isIdentifier(target) ? resolveFn(env.idx, target.text) : null
+      if (fn === null || fn === 'package' || fn.fn.body === undefined) return false
+      const scan = (where: FileIndex, body: ts.Node, depth: number): boolean => {
+        let found = false
+        const visit = (node: ts.Node): void => {
+          if (found) return
+          if (ts.isCallExpression(node)) {
+            const callee = unwrap(node.expression)
+            if (ts.isPropertyAccessExpression(callee)) {
+              const [first] = node.arguments
+              if ((callee.name.text === 'status' || callee.name.text === 'code') && first !== undefined && ts.isNumericLiteral(first) && HANDLER_REFUSALS.has(Number(first.text))) { found = true; return }
+              if (callee.name.text === 'unauthorized' || callee.name.text === 'forbidden') { found = true; return }
+            } else if (ts.isIdentifier(callee) && depth < 1) {
+              const inner = resolveFn(where, callee.text)
+              if (inner !== null && inner !== 'package' && inner.fn.body !== undefined && scan(inner.idx, inner.fn.body, depth + 1)) { found = true; return }
+            }
+          }
+          ts.forEachChild(node, visit)
+        }
+        visit(body)
+        return found
+      }
+      return scan(fn.idx, fn.fn.body, 0)
+    }
+
+    const shorthand = (env: Env, call: ts.CallExpression, method: string, scope: Scope, checks: readonly string[]): void => {
       const [path, ...rest] = call.arguments
       if (path === undefined) return
       if (!ts.isStringLiteralLike(path)) {
-        gap(idx, call, 'computed-route-path', `${method.toUpperCase()} route path is built at runtime`)
+        gap(env.idx, call, 'computed-route-path', `${method.toUpperCase()} route path is built at runtime`)
         return
       }
-      // `app.get(path, handler)` or `app.get(path, options, handler)`.
-      const opts = rest.length >= 2 && ts.isObjectLiteralExpression(rest[0]!) ? rest[0] : undefined
-      emit(idx, call, method, path.text, scope, combine(checks, opts === undefined ? [] : routeHooks(opts, idx.file.ast, lookup)))
+      // `app.get(path, handler)`, `app.get(path, options, handler)`, or
+      // `app.get(path, { preHandler, handler })`.
+      const first = rest[0]
+      const opts = first !== undefined && ts.isObjectLiteralExpression(first) && (rest.length >= 2 || property(first, 'handler') !== undefined) ? first : undefined
+      const handler = (opts === undefined ? undefined : property(opts, 'handler')) ?? (rest.length >= 2 || opts === undefined ? rest[rest.length - 1] : undefined)
+      emit(env, call, method, path.text, scope, combine(checks, opts === undefined ? [] : routeHooks(opts, (e, h) => named(e, h, env))), handler)
     }
 
-    const routeObject = (idx: FileIndex, call: ts.CallExpression, scope: Scope, checks: readonly string[], lookup: Lookup): void => {
+    const routeObject = (env: Env, call: ts.CallExpression, scope: Scope, checks: readonly string[]): void => {
       const [spec] = call.arguments
       if (spec === undefined || !ts.isObjectLiteralExpression(spec)) {
-        gap(idx, call, 'dynamic-dispatch', 'a route is defined from a value built while the app runs')
+        gap(env.idx, call, 'dynamic-dispatch', 'a route is defined from a value built while the app runs')
         return
       }
       const method = property(spec, 'method')
@@ -202,18 +437,18 @@ export const fastify: RouteDetector = {
       const methods = method === undefined ? [] : ts.isStringLiteralLike(method) ? [method.text]
         : ts.isArrayLiteralExpression(method) && method.elements.every(ts.isStringLiteralLike) ? method.elements.map((e) => (e as ts.StringLiteralLike).text) : null
       if (methods === null || methods.length === 0 || url === undefined || !ts.isStringLiteralLike(url)) {
-        gap(idx, call, url !== undefined && !ts.isStringLiteralLike(url) ? 'computed-route-path' : 'dynamic-dispatch',
+        gap(env.idx, call, url !== undefined && !ts.isStringLiteralLike(url) ? 'computed-route-path' : 'dynamic-dispatch',
           'a route\'s method or path is decided while the app runs')
         return
       }
-      const middleware = combine(checks, routeHooks(spec, idx.file.ast, lookup))
-      for (const m of methods) emit(idx, call, m.toLowerCase(), url.text, scope, middleware)
+      const middleware = combine(checks, routeHooks(spec, (e, h) => named(e, h, env)))
+      for (const m of methods) emit(env, call, m.toLowerCase(), url.text, scope, middleware, property(spec, 'handler'))
     }
 
     // From every place the app is created.
     for (const idx of index.values()) {
       for (const { scope, name } of roots(idx)) {
-        walk(idx, scope, new Set([name]), { prefix: '', hooks: [], root: true, unmounted: false }, 0)
+        walk(envFor(idx, scope), scope, new Set([name]), { prefix: '', hooks: [], guards: [], root: true, unmounted: false }, [])
       }
     }
 
@@ -221,11 +456,11 @@ export const fastify: RouteDetector = {
     // or only by tests. Their routes are real, with a prefix we do not know.
     for (const idx of index.values()) {
       for (const fn of new Set(idx.locals.values())) {
-        if (walked.has(fn) || !looksLikePlugin(fn)) continue
-        walked.add(fn)
+        if (reached.has(fn) || !looksLikePlugin(fn)) continue
+        reached.add(fn)
         const param = fn.parameters[0]!.name as ts.Identifier
         const before = facts.length
-        walk(idx, fn.body!, new Set([param.text]), { prefix: '', hooks: [], root: false, unmounted: true }, 0)
+        walk(envFor(idx, fn.body!), fn.body!, new Set([param.text]), { prefix: '', hooks: [], guards: [], root: false, unmounted: true }, [fn])
         if (facts.slice(before).some((f) => f.kind === 'route')) {
           gap(idx, fn, 'unresolved-route-prefix', 'these routes are registered by code I cannot follow, so their full paths have a prefix I cannot see')
         }
@@ -236,12 +471,14 @@ export const fastify: RouteDetector = {
 }
 
 function indexFile(file: ParsedFile, paths: ReadonlySet<string>): FileIndex {
-  const idx: FileIndex = { file, locals: new Map(), exported: new Map(), imports: new Map(), packages: new Set(), factories: new Set(), sharers: new Set() }
+  const idx: FileIndex = {
+    file, locals: new Map(), exported: new Map(), exportedConsts: new Map(), imports: new Map(),
+    packages: new Set(), factories: new Set(), sharers: new Set(),
+  }
   const src = file.ast
-  const isExported = (n: ts.Node): boolean =>
-    (ts.canHaveModifiers(n) ? ts.getModifiers(n) ?? [] : []).some((m) => m.kind === ts.SyntaxKind.ExportKeyword)
-  const isDefault = (n: ts.Node): boolean =>
-    (ts.canHaveModifiers(n) ? ts.getModifiers(n) ?? [] : []).some((m) => m.kind === ts.SyntaxKind.DefaultKeyword)
+  const modifiers = (n: ts.Node): readonly ts.ModifierLike[] => (ts.canHaveModifiers(n) ? ts.getModifiers(n) ?? [] : [])
+  const isExported = (n: ts.Node): boolean => modifiers(n).some((m) => m.kind === ts.SyntaxKind.ExportKeyword)
+  const isDefault = (n: ts.Node): boolean => modifiers(n).some((m) => m.kind === ts.SyntaxKind.DefaultKeyword)
   const exportedNames = new Map<string, string>()
 
   for (const stmt of src.statements) {
@@ -272,6 +509,11 @@ function indexFile(file: ParsedFile, paths: ReadonlySet<string>): FileIndex {
       else if (ts.isIdentifier(e)) exportedNames.set(e.text, 'default')
       else if (ts.isCallExpression(e) && e.arguments[0] !== undefined && (ts.isArrowFunction(e.arguments[0]) || ts.isFunctionExpression(e.arguments[0]))) {
         idx.exported.set('default', e.arguments[0])
+      }
+    }
+    if (ts.isVariableStatement(stmt) && isExported(stmt)) {
+      for (const decl of stmt.declarationList.declarations) {
+        if (ts.isIdentifier(decl.name) && decl.initializer !== undefined) idx.exportedConsts.set(decl.name.text, decl.initializer)
       }
     }
   }
@@ -330,22 +572,21 @@ function roots(idx: FileIndex): { scope: ts.Node; name: string }[] {
   return out
 }
 
-/** A function whose first parameter is used as a Fastify instance for routes. */
+/** A function that registers routes on its first parameter. */
 function looksLikePlugin(fn: Fn): boolean {
   const param = fn.parameters[0]
   if (param === undefined || !ts.isIdentifier(param.name) || fn.body === undefined) return false
-  const typed = param.type !== undefined && ts.isTypeReferenceNode(param.type) && ts.isIdentifier(param.type.typeName) && param.type.typeName.text === 'FastifyInstance'
-  if (typed) return true
   const name = param.name.text
-  let found = false
+  let routes = false
   const visit = (node: ts.Node): void => {
-    if (found) return
+    if (routes) return
     if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && ts.isIdentifier(node.expression.expression) &&
-        node.expression.expression.text === name && (METHODS.has(node.expression.name.text) || node.expression.name.text === 'route') && node.arguments.length >= 1) found = true
+        node.expression.expression.text === name && (METHODS.has(node.expression.name.text) || node.expression.name.text === 'route') && node.arguments.length >= 1) routes = true
     else ts.forEachChild(node, visit)
   }
   visit(fn.body)
-  return found
+  // A helper that only adds hooks is not a plugin with routes of its own.
+  return routes
 }
 
 function isInstance(expr: ts.Expression, names: ReadonlySet<string>): boolean {
@@ -355,15 +596,45 @@ function isInstance(expr: ts.Expression, names: ReadonlySet<string>): boolean {
     expr.expression.name.text === 'withTypeProvider' && isInstance(expr.expression.expression, names)
 }
 
-type Lookup = (name: string) => ts.Expression | undefined
+/** `instance.addHook('preHandler', check)` directly inside this plugin. */
+function localHooks(body: ts.Node, instances: ReadonlySet<string>, name: (e: ts.Expression, hook: string) => string[] | null): string[] {
+  const out: string[] = []
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'addHook' && isInstance(node.expression.expression, instances)) {
+      const [hook, fn] = node.arguments
+      if (hook !== undefined && ts.isStringLiteralLike(hook) && CHECK_HOOKS.has(hook.text) && fn !== undefined) {
+        const names = name(fn, hook.text)
+        out.push(...(names === null ? [`${hook.text} hook`] : names))
+      }
+      return
+    }
+    // A nested plugin's hooks are its own.
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'register') return
+    ts.forEachChild(node, visit)
+  }
+  visit(body)
+  return out
+}
+
+/** Route-level checks in a route's options. null if any cannot be named. */
+function routeHooks(opts: ts.ObjectLiteralExpression, name: (e: ts.Expression, hook: string) => string[] | null): string[] | null {
+  const out: string[] = []
+  for (const hook of CHECK_HOOKS) {
+    const value = property(opts, hook)
+    if (value === undefined) continue
+    const names = name(value, hook)
+    if (names === null) return null
+    out.push(...names)
+  }
+  return out
+}
 
 /**
  * `const adminGuard = requirePermission('configure', 'user')`: a check is often
- * given a short name first. Following the name to what it stands for is
- * reading the code, not guessing — the plugin's own constants first, then the
- * file's. A name declared twice in the same place is not followed.
+ * given a short name first. The plugin's own constants first, then the file's.
+ * A name declared twice in the same place is not followed.
  */
-function constants(body: ts.Node, src: ts.SourceFile): Lookup {
+function constants(body: ts.Node, src: ts.SourceFile): (name: string) => ts.Expression | undefined {
   const collect = (root: ts.Node): Map<string, ts.Expression | null> => {
     const out = new Map<string, ts.Expression | null>()
     const visit = (node: ts.Node): void => {
@@ -387,71 +658,44 @@ function constants(body: ts.Node, src: ts.SourceFile): Lookup {
   }
 }
 
+/** A literal comparison we can decide from the code: `param === 'id'`. */
+function evaluate(expr: ts.Expression, env: Env): boolean | undefined {
+  const e = unwrap(expr)
+  if (!ts.isBinaryExpression(e)) return undefined
+  const op = e.operatorToken.kind
+  if (op !== ts.SyntaxKind.EqualsEqualsEqualsToken && op !== ts.SyntaxKind.ExclamationEqualsEqualsToken) return undefined
+  const value = (x: ts.Expression): string | undefined => {
+    let v = unwrap(x)
+    for (let i = 0; i < 6 && ts.isIdentifier(v); i++) {
+      const bound = env.bindings.get(v.text)
+      if (bound === undefined) break
+      v = unwrap(bound.expr)
+      if (ts.isIdentifier(v)) { const again = bound.env.bindings.get(v.text); if (again !== undefined) { v = unwrap(again.expr) } }
+    }
+    return ts.isStringLiteralLike(v) ? v.text : undefined
+  }
+  const a = value(e.left), b = value(e.right)
+  if (a === undefined || b === undefined) return undefined
+  return op === ts.SyntaxKind.EqualsEqualsEqualsToken ? a === b : a !== b
+}
+
 /** `x as any`, `(x)`, `x!`, `x satisfies T` are all still x. */
 function unwrap(expr: ts.Expression): ts.Expression {
   let e = expr
-  while (ts.isAsExpression(e) || ts.isParenthesizedExpression(e) || ts.isNonNullExpression(e) || ts.isSatisfiesExpression(e) || ts.isTypeAssertionExpression(e)) e = e.expression
+  while (ts.isAsExpression(e) || ts.isParenthesizedExpression(e) || ts.isNonNullExpression(e) || ts.isSatisfiesExpression(e) || ts.isTypeAssertionExpression(e) || ts.isAwaitExpression(e)) e = e.expression
   return e
 }
 
-/** `instance.addHook('preHandler', check)` directly inside this plugin. */
-function localHooks(body: ts.Node, instances: ReadonlySet<string>, src: ts.SourceFile, lookup: Lookup): string[] {
-  const out: string[] = []
-  const visit = (node: ts.Node): void => {
-    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'addHook' && isInstance(node.expression.expression, instances)) {
-      const [hook, fn] = node.arguments
-      if (hook !== undefined && ts.isStringLiteralLike(hook) && CHECK_HOOKS.has(hook.text) && fn !== undefined) {
-        const names = describe(fn, hook.text, src, lookup)
-        out.push(...(names === null ? [`${hook.text} hook`] : names))
-      }
-      return
-    }
-    // A nested plugin's hooks are its own.
-    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'register') return
-    ts.forEachChild(node, visit)
-  }
-  visit(body)
-  return out
+const rootIdentifier = (expr: ts.Expression): string | null =>
+  ts.isIdentifier(expr) ? expr.text : ts.isPropertyAccessExpression(expr) ? rootIdentifier(expr.expression) : null
+
+/** Whether a call hands on the request, the reply or the callback. */
+function passesRequest(call: ts.CallExpression, params: readonly string[]): boolean {
+  return call.arguments.some((a) => ts.isIdentifier(a) && params.includes(a.text))
 }
 
-/** Route-level checks in a route's options. null if any cannot be named. */
-function routeHooks(opts: ts.ObjectLiteralExpression, src: ts.SourceFile, lookup: Lookup): string[] | null {
-  const out: string[] = []
-  for (const hook of CHECK_HOOKS) {
-    const value = property(opts, hook)
-    if (value === undefined) continue
-    const names = describe(value, hook, src, lookup)
-    if (names === null) return null
-    out.push(...names)
-  }
-  return out
-}
-
-/** A check as written: `requireUser`, `requirePermission('approve', 'approval')`,
- *  `app.authenticate`. An inline function is a real check with no name. */
-function describe(expr: ts.Expression, hook: string, src: ts.SourceFile, lookup: Lookup, depth = 0): string[] | null {
-  expr = unwrap(expr)
-  if (ts.isArrayLiteralExpression(expr)) {
-    const out: string[] = []
-    for (const el of expr.elements) {
-      const names = describe(el, hook, src, lookup, depth)
-      if (names === null) return null
-      out.push(...names)
-    }
-    return out
-  }
-  if (ts.isIdentifier(expr)) {
-    const stands = depth < 4 ? lookup(expr.text) : undefined
-    if (stands !== undefined && (ts.isCallExpression(unwrap(stands)) || ts.isArrayLiteralExpression(unwrap(stands)) || ts.isIdentifier(unwrap(stands)))) {
-      return describe(stands, hook, src, lookup, depth + 1)
-    }
-    return [expr.text]
-  }
-  if (ts.isPropertyAccessExpression(expr)) return [expr.getText(src)]
-  if (ts.isCallExpression(expr)) return [expr.getText(src).replace(/\s+/g, ' ').replace(/\(\s+/g, '(').replace(/\s+\)/g, ')')]
-  if (ts.isArrowFunction(expr) || ts.isFunctionExpression(expr)) return [`inline ${hook}`]
-  return null
-}
+const isNothing = (e: ts.Expression): boolean =>
+  e.kind === ts.SyntaxKind.NullKeyword || (ts.isIdentifier(e) && e.text === 'undefined')
 
 function combine(inherited: readonly string[], own: string[] | null): Middleware {
   return own === null ? 'unresolved' : [...inherited, ...own]

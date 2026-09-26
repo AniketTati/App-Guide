@@ -635,3 +635,16 @@ it is defensible.
      outside calls and exports — draft-legal's outside services went from 16 to
      9 and its raw-SQL blind spots from 54 to 22, matching an independent count
      — while their package imports still count.
+110. **Checks, measured.** With #106 implemented — a hook counts only if its
+     code can refuse, followed through the functions it calls; a check we
+     cannot read into still counts; guards installed by `onRoute` apply to the
+     routes registered after them whose URL matches their pattern, evaluated
+     from the code; a 401/403 inside a handler is named — draft-legal's 297
+     routes read as: **12 with no check found, and they are exactly its public
+     endpoints** (health, sign-up, invites, password reset, logout, the
+     marketing contact form, telemetry). 208 `requirePermission` checks (the
+     developer critique's independent count), 74 ownership guards, 49 checks
+     inside handlers; the output recorder that had counted as a check no
+     longer does. The permission table still matches 252 of 252. The wording
+     follows: *no check found*, and *I found nothing that stops…*, never
+     *anyone can…*.
